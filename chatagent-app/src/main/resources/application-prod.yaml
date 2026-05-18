@@ -1,0 +1,14 @@
+spring:
+  jpa:
+    show-sql: false
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+
+logging:
+  level:
+    root: WARN
+    com.example.chatagent: INFO
+
+server:
+  port: 8080

@@ -1,0 +1,95 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+*.code-workspace
+
+### Docker ###
+.dockerignore
+docker-compose.override.yml
+
+### Environment files ###
+.env
+.env.local
+.env.*.local
+
+### IDE ###
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+### Build files ###
+*.log
+*.class
+*.jar
+*.zip
+*.tar.gz
+
+### Testing ###
+coverage/
+.coverage
+htmlcov/
+
+### OS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+*.dll
+*.exe
+
+### Database ###
+*.db
+*.sqlite
+postgres-data/
+
+### Node (if used for frontend) ###
+node_modules/
+npm-debug.log
+yarn-error.log
+
+### Maven ###
+/target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
+### Misc ###
+*.orig
+*.bak
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
