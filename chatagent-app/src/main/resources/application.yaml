@@ -4,42 +4,47 @@ spring:
   profiles:
     active: dev
   
-  # JPA/Hibernate Configuration
+  # JPA/Hibernate Configuration - validate only; pgvector schema is managed by Spring AI / init-db.sql
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
-        use_sql_comments: true
-        jdbc:
-          batch_size: 20
-          fetch_size: 50
-        order_inserts: true
-        order_updates: true
-  
-  # DataSource Configuration
+
+  # DataSource Configuration - prefers SPRING_DATASOURCE_URL; falls back to PGHOST/PGPORT/PGDATABASE
   datasource:
-    url: jdbc:postgresql://localhost:5432/chatagent
-    username: postgres
-    password: postgres
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${PGHOST:localhost}:${PGPORT:5432}/${PGDATABASE:chatagent}}
+    username: ${SPRING_DATASOURCE_USERNAME:${PGUSER:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${PGPASSWORD:postgres}}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
-      minimum-idle: 5
+      minimum-idle: 2
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
 
-  # Jackson Configuration
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-      indent-output: true
-    deserialization:
-      fail-on-unknown-properties: false
+  # Spring AI: OpenAI models + pgvector store
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-4o-mini}
+          temperature: 0.3
+      embedding:
+        options:
+          model: ${OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 1536
+        distance-type: COSINE_DISTANCE
+        index-type: HNSW
+        table-name: kb_documents
+        schema-name: public
 
 # Server Configuration
 server:
@@ -58,9 +63,6 @@ logging:
     root: INFO
     com.example.chatagent: DEBUG
     org.springframework.web: INFO
-    org.springframework.security: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
@@ -90,3 +92,63 @@ app:
   name: ChatAgent
   version: @project.version@
   description: AI-powered chat application with Spring Boot and PGVector
+  rag:
+    top-k: ${RAG_TOP_K:6}
+    similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.30}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001}
+
+# ============================================================
+# GitHub project content sync + retrieval configuration
+# ============================================================
+github:
+  # Optional personal access token (PUBLIC repos work without one, but a token
+  # raises the rate limit). Read from env: GITHUB_TOKEN.
+  token: ${GITHUB_TOKEN:}
+  repositories:
+    - owner: YuqiGuo105
+      name: Portfolio
+      branch: main
+    - owner: YuqiGuo105
+      name: chatagent
+      branch: main
+  sync:
+    # Set to false to keep the bean wired but skip the scheduled job.
+    enabled: ${GITHUB_SYNC_ENABLED:false}
+    # Daily at 02:00 server time.
+    cron: ${GITHUB_SYNC_CRON:0 0 2 * * *}
+    # Max file size to fetch (bytes); skip larger binaries/minified bundles.
+    max-file-size: ${GITHUB_SYNC_MAX_FILE_SIZE:200000}
+    file-types:
+      document:
+        - .md
+        - .mdx
+        - .txt
+        - .json
+      code:
+        - .java
+        - .ts
+        - .tsx
+        - .js
+        - .jsx
+        - .py
+        - .yml
+        - .yaml
+        - .xml
+    exclude-directories:
+      - node_modules
+      - target
+      - dist
+      - build
+      - .next
+      - .git
+      - coverage
+      - vendor
+    chunking:
+      document:
+        max-tokens: 800
+      code:
+        max-lines: 120
+  retrieval:
+    top-k: ${GITHUB_RAG_TOP_K:5}
+    similarity-threshold: ${GITHUB_RAG_SIMILARITY_THRESHOLD:0.30}

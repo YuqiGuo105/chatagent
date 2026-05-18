@@ -38,10 +38,15 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
-		<!-- Spring AI -->
+		<!-- Spring AI: pgvector store + OpenAI chat & embedding models -->
 		<dependency>
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-openai</artifactId>
 		</dependency>
 
 		<!-- Database -->
@@ -51,6 +56,13 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- GitHub REST API client (used by GitHub repo sync service) -->
+		<dependency>
+			<groupId>org.kohsuke</groupId>
+			<artifactId>github-api</artifactId>
+			<version>1.318</version>
+		</dependency>
+
 		<!-- Lombok -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
@@ -58,10 +70,16 @@
 			<optional>true</optional>
 		</dependency>
 
-		<!-- Jackson -->
+		<!-- Jackson 2.x compatibility for Spring AI 2.0.0-M6 (Spring Boot 4.x uses Jackson 3.x) -->
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
+			<version>2.21.2</version>
+		</dependency>
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+			<version>2.21.2</version>
 		</dependency>
 
 		<!-- Testing -->
