@@ -4,15 +4,22 @@ FROM maven:3.9-eclipse-temurin-21 AS builder
 
 WORKDIR /build
 
-# Copy pom.xml
+# Copy parent pom and sub-module poms first (layer cache for dependencies)
 COPY pom.xml .
+COPY mvnw mvnw
+COPY .mvn/ .mvn/
+COPY chatagent-common/pom.xml chatagent-common/pom.xml
+COPY chatagent-app/pom.xml chatagent-app/pom.xml
 
-# Copy source code
-COPY src/ src/
-COPY mvnw ./
+# Pre-fetch dependencies
+RUN ./mvnw dependency:go-offline -q || true
 
-# Build application
-RUN ./mvnw clean package -DskipTests
+# Copy source code for all modules
+COPY chatagent-common/src/ chatagent-common/src/
+COPY chatagent-app/src/ chatagent-app/src/
+
+# Build application (skip tests)
+RUN ./mvnw clean package -DskipTests -pl chatagent-app -am
 
 # Stage 2: Runtime
 FROM eclipse-temurin:21-jre-jammy
@@ -20,7 +27,7 @@ FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 # Copy JAR from builder
-COPY --from=builder /build/target/chatagent-*.jar app.jar
+COPY --from=builder /build/chatagent-app/target/chatagent-app-*.jar app.jar
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
