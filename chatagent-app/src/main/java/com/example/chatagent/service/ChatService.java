@@ -6,6 +6,8 @@ import com.example.chatagent.model.github.RetrievalRouteDecision;
 import com.example.chatagent.service.retrieval.GitHubDocumentRetrievalService;
 import com.example.chatagent.service.retrieval.HybridRetrievalService;
 import com.example.chatagent.service.retrieval.RetrievalRouterService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -14,7 +16,9 @@ import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -27,14 +31,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
- * Orchestrates a single RAG turn:
- * <ol>
- *   <li>Retrieve top-K chunks from the pgvector KB.</li>
- *   <li>Emit progress events the front-end's StageToast can render.</li>
- *   <li>Stream the model answer token-by-token (or fall back to a context echo
- *       when no LLM credentials are configured).</li>
- *   <li>Send {@code answer_final} and complete the SSE stream.</li>
- * </ol>
+ * Orchestrates RAG turns for all chat modes:
+ * <ul>
+ *   <li><b>FAST</b> (default) — standard RAG pipeline.</li>
+ *   <li><b>DEEPTHINKING</b> — adds plan → generate → verify reasoning chain via {@link DeepThinkingService}.</li>
+ *   <li><b>WEB_GUIDE</b> — generates a personalised site tour via {@link WebGuideService}.</li>
+ *   <li><b>ENHANCE</b> — standard RAG + LLM key-concept extraction emitted as {@code key_concepts}.</li>
+ * </ul>
  */
 @Slf4j
 @Service
@@ -57,12 +60,27 @@ public class ChatService {
             QUESTION: {question}
             """;
 
+    private static final String CONCEPTS_PROMPT = """
+            Text (max 600 chars): "%s"
+            
+            Extract up to 8 key concepts. For each return:
+            {"term":"...","type":"TECH|PERSON|ORG|CONCEPT","importance":"primary|secondary|contextual"}
+            
+            Return ONLY: {"concepts":[...]}
+            """;
+
     private final KnowledgeBaseService kb;
     private final SseEventWriter sse;
-    private final ChatClient chatClient; // null when no LLM provider configured
+    private final ChatClient chatClient;
     private final RetrievalRouterService router;
     private final GitHubDocumentRetrievalService githubRetrieval;
     private final HybridRetrievalService hybridRetrieval;
+    private final WebGuideService webGuideService;
+    private final DeepThinkingService deepThinkingService;
+    private final ObjectMapper objectMapper;
+
+    @Value("${app.models.cheap:gpt-4.1-nano}")
+    private String cheapModel;
 
     /** In-memory rolling conversation window, keyed by sessionId. */
     private final ChatMemory chatMemory = MessageWindowChatMemory.builder()
@@ -75,12 +93,18 @@ public class ChatService {
                        ObjectProvider<ChatClient.Builder> chatClientBuilderProvider,
                        RetrievalRouterService router,
                        GitHubDocumentRetrievalService githubRetrieval,
-                       HybridRetrievalService hybridRetrieval) {
+                       HybridRetrievalService hybridRetrieval,
+                       WebGuideService webGuideService,
+                       DeepThinkingService deepThinkingService,
+                       ObjectMapper objectMapper) {
         this.kb = kb;
         this.sse = sse;
         this.router = router;
         this.githubRetrieval = githubRetrieval;
         this.hybridRetrieval = hybridRetrieval;
+        this.webGuideService = webGuideService;
+        this.deepThinkingService = deepThinkingService;
+        this.objectMapper = objectMapper;
         ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
         this.chatClient = builder == null ? null : builder.defaultSystem(SYSTEM_PROMPT).build();
         if (this.chatClient == null) {
@@ -89,23 +113,42 @@ public class ChatService {
         }
     }
 
-    /** Run the full pipeline asynchronously so the controller can return immediately. */
+    /** Dispatch to the appropriate mode pipeline asynchronously. */
     @Async
     public void handle(ChatRequest req, SseEmitter emitter) {
+        if (req.isWebGuide()) {
+            webGuideService.handleWebGuide(req.safeMessage(), emitter);
+            return;
+        }
+        if (req.isDeepThinking()) {
+            runDeepThinkingPipeline(req, emitter);
+            return;
+        }
+        if (req.isEnhance()) {
+            runEnhancePipeline(req, emitter);
+            return;
+        }
+        // Default: FAST mode
+        runDefaultPipeline(req, emitter);
+    }
+
+    /* ======================================================
+       FAST (default) pipeline
+       ====================================================== */
+
+    private void runDefaultPipeline(ChatRequest req, SseEmitter emitter) {
         try {
             emit(emitter, "start", "Initialising",
                     Map.of("sessionId", req.sessionId() == null ? "" : req.sessionId()));
 
-            // 1) Decide retrieval route
+            List<Document> kbHits = List.of();
+            List<GitHubProjectDocument> githubHits = List.of();
+
             RetrievalRouteDecision decision = router.decideRoute(req.safeMessage());
             emit(emitter, "retrieval_route_decided", "Routing retrieval",
                     Map.of("route", decision.getRoute(),
                            "reason", decision.getReason(),
                            "confidence", decision.getConfidence()));
-
-            // 2) Retrieve according to the chosen route
-            List<Document> kbHits = List.of();
-            List<GitHubProjectDocument> githubHits = List.of();
 
             switch (decision.getRoute()) {
                 case RetrievalRouteDecision.ROUTE_GITHUB_CODE ->
@@ -121,27 +164,125 @@ public class ChatService {
 
             String context = buildCombinedContext(kbHits, githubHits);
 
-            // 3) Generation
             emit(emitter, "generate", "Generating answer",
                     Map.of("toolName", "llm_generate", "status", "running"));
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
             String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter);
 
-            // 4) Done
             sse.sendAnswerFinal(emitter, finalAnswer);
             emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
             emitter.complete();
         } catch (Exception e) {
-            log.error("Chat pipeline failed", e);
-            sse.sendStage(emitter, "retrieve_error", "Knowledge base error",
-                    Map.of("toolName", "kb_retrieve", "status", "failed", "error",
-                           e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
-            sse.sendError(emitter, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-            emitter.complete();
+            handleError(emitter, e);
         }
     }
 
-    /* ------------------------------------------------------------------ */
+    /* ======================================================
+       DEEPTHINKING pipeline
+       ====================================================== */
+
+    private void runDeepThinkingPipeline(ChatRequest req, SseEmitter emitter) {
+        try {
+            emit(emitter, "start", "Initialising deep thinking",
+                    Map.of("sessionId", req.sessionId() == null ? "" : req.sessionId()));
+
+            // Retrieve context (always use hybrid for deep thinking — more thorough)
+            List<Document> kbHits = runKbSearch(req.safeMessage(), emitter);
+            List<GitHubProjectDocument> githubHits = List.of();
+            try {
+                githubHits = runGitHubSearch(req.safeMessage(), null, emitter);
+            } catch (Exception ignore) {
+                log.debug("GitHub search skipped in deep thinking: {}", ignore.getMessage());
+            }
+            String context = buildCombinedContext(kbHits, githubHits);
+
+            emit(emitter, "generate", "Deep reasoning started",
+                    Map.of("toolName", "llm_deep_think", "status", "running"));
+
+            String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
+            String finalAnswer = deepThinkingService.handle(req.safeMessage(), context, sid, emitter);
+
+            sse.sendAnswerFinal(emitter, finalAnswer);
+            emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
+            emitter.complete();
+        } catch (Exception e) {
+            handleError(emitter, e);
+        }
+    }
+
+    /* ======================================================
+       ENHANCE pipeline
+       ====================================================== */
+
+    private void runEnhancePipeline(ChatRequest req, SseEmitter emitter) {
+        try {
+            emit(emitter, "start", "Initialising enhanced mode",
+                    Map.of("sessionId", req.sessionId() == null ? "" : req.sessionId()));
+
+            // 1. Standard retrieval
+            List<Document> kbHits = List.of();
+            List<GitHubProjectDocument> githubHits = List.of();
+            RetrievalRouteDecision decision = router.decideRoute(req.safeMessage());
+            emit(emitter, "retrieval_route_decided", "Routing retrieval",
+                    Map.of("route", decision.getRoute(), "reason", decision.getReason(),
+                           "confidence", decision.getConfidence()));
+            switch (decision.getRoute()) {
+                case RetrievalRouteDecision.ROUTE_GITHUB_CODE ->
+                        githubHits = runGitHubSearch(req.safeMessage(), "code", emitter);
+                case RetrievalRouteDecision.ROUTE_GITHUB_CONTENT ->
+                        githubHits = runGitHubSearch(req.safeMessage(), "document", emitter);
+                case RetrievalRouteDecision.ROUTE_HYBRID -> {
+                    kbHits = runKbSearch(req.safeMessage(), emitter);
+                    githubHits = runGitHubSearch(req.safeMessage(), null, emitter);
+                }
+                default -> kbHits = runKbSearch(req.safeMessage(), emitter);
+            }
+            String context = buildCombinedContext(kbHits, githubHits);
+
+            // 2. Generate answer
+            emit(emitter, "generate", "Generating answer",
+                    Map.of("toolName", "llm_generate", "status", "running"));
+            String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
+            String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter);
+
+            // 3. Extract key concepts (cheap, non-blocking from user's perspective)
+            extractAndEmitKeyConcepts(finalAnswer, emitter);
+
+            sse.sendAnswerFinal(emitter, finalAnswer);
+            emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
+            emitter.complete();
+        } catch (Exception e) {
+            handleError(emitter, e);
+        }
+    }
+
+    private void extractAndEmitKeyConcepts(String answer, SseEmitter emitter) {
+        if (chatClient == null) return;
+        try {
+            String snippet = answer.length() > 600 ? answer.substring(0, 600) : answer;
+            String raw = chatClient.prompt()
+                    .options(OpenAiChatOptions.builder().model(cheapModel).temperature(0.1))
+                    .user(String.format(CONCEPTS_PROMPT, snippet))
+                    .call()
+                    .content();
+
+            // Parse and emit
+            String json = raw == null ? "" : raw.trim();
+            int start = json.indexOf('{');
+            int end   = json.lastIndexOf('}');
+            if (start >= 0 && end > start) {
+                json = json.substring(start, end + 1);
+                Map<String, Object> parsed = objectMapper.readValue(json, new TypeReference<>() {});
+                Object concepts = parsed.get("concepts");
+                if (concepts != null) {
+                    sse.sendStage(emitter, "key_concepts", "Key concepts extracted",
+                            Map.of("concepts", concepts));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Key concept extraction failed (non-fatal): {}", e.getMessage());
+        }
+    }
 
     private List<Document> runKbSearch(String question, SseEmitter emitter) {
         long start = System.currentTimeMillis();
@@ -253,5 +394,14 @@ public class ChatService {
     private void emit(SseEmitter emitter, String stage, String message, Map<String, Object> payload) {
         Map<String, Object> map = new LinkedHashMap<>(payload);
         sse.sendStage(emitter, stage, message, map);
+    }
+
+    private void handleError(SseEmitter emitter, Exception e) {
+        log.error("Chat pipeline failed", e);
+        sse.sendStage(emitter, "retrieve_error", "Pipeline error",
+                Map.of("toolName", "pipeline", "status", "failed", "error",
+                       e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+        sse.sendError(emitter, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        emitter.complete();
     }
 }

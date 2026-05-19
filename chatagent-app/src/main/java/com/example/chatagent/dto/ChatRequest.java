@@ -15,6 +15,7 @@ import java.util.List;
  * {
  *   "sessionId": "abc-123",
  *   "question": "What is the project about?",
+ *   "mode": "FAST" | "DEEPTHINKING" | "WEB_GUIDE" | "ENHANCE",
  *   "scopeMode": "OWNER_ONLY" | "GENERAL",
  *   "fileUrls": ["https://..."]   // optional
  * }
@@ -25,6 +26,7 @@ public record ChatRequest(
         String sessionId,
         String message,   // kept for backward-compat; prefer "question"
         String question,  // the field the ChatWidget actually sends
+        String mode,      // FAST | DEEPTHINKING | WEB_GUIDE | ENHANCE (default: FAST)
         String scopeMode,
         List<String> fileUrls
 ) {
@@ -37,4 +39,8 @@ public record ChatRequest(
     public boolean isOwnerOnly() {
         return "OWNER_ONLY".equalsIgnoreCase(scopeMode);
     }
+
+    public boolean isDeepThinking() { return "DEEPTHINKING".equalsIgnoreCase(mode); }
+    public boolean isWebGuide()     { return "WEB_GUIDE".equalsIgnoreCase(mode); }
+    public boolean isEnhance()      { return "ENHANCE".equalsIgnoreCase(mode); }
 }
