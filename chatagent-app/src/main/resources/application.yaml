@@ -169,3 +169,13 @@ github:
   retrieval:
     top-k: ${GITHUB_RAG_TOP_K:5}
     similarity-threshold: ${GITHUB_RAG_SIMILARITY_THRESHOLD:0.30}
+
+google:
+  search:
+    api-key: ${GOOGLE_API_KEY:}
+    cx: ${GOOGLE_CSE_ID:}
+    num-results: 10
+    endpoint: https://www.googleapis.com/customsearch/v1
+
+webops:
+  allow-writes: ${WEBOPS_ALLOW_WRITES:true}

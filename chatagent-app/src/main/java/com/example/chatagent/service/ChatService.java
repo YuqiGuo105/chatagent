@@ -1,6 +1,9 @@
 package com.example.chatagent.service;
 
 import com.example.chatagent.dto.ChatRequest;
+import com.example.chatagent.tool.analytics.VisitorAnalyticsTool;
+import com.example.chatagent.tool.webops.WebOpsTool;
+import com.example.chatagent.tool.websearch.WebSearchTool;
 import com.example.chatagent.model.github.GitHubProjectDocument;
 import com.example.chatagent.model.github.RetrievalRouteDecision;
 import com.example.chatagent.service.retrieval.GitHubDocumentRetrievalService;
@@ -61,11 +64,17 @@ public class ChatService {
     private static String buildSystemPrompt(String userEmail) {
         boolean isOwner = BLOG_OWNER_EMAIL.equalsIgnoreCase(userEmail);
         String authBlock = isOwner
-                ? """\n\nAUTH CONTEXT: User is authenticated as %s (site owner).\nBlog write operations (create_tech_blog, update_tech_blog, delete_tech_blog,\ncreate_life_blog, update_life_blog, delete_life_blog) are PERMITTED.""".formatted(userEmail)
-                : """\n\nAUTH CONTEXT: %s\nBlog write operations (create_tech_blog, update_tech_blog, delete_tech_blog,\ncreate_life_blog, update_life_blog, delete_life_blog) are NOT PERMITTED.\nIf the user asks to create, update, or delete blog posts, politely refuse and\ntell them they must log in as the site owner first."""
-                        .formatted(userEmail == null || userEmail.isBlank()
-                                ? "No authenticated user."
-                                : "User email '%s' is not authorised for blog management.".formatted(userEmail));
+                ? "\n\nAUTH CONTEXT: User is authenticated as " + userEmail + " (site owner).\n"
+                  + "Blog write operations (create_tech_blog, update_tech_blog, delete_tech_blog,\n"
+                  + "create_life_blog, update_life_blog, delete_life_blog) are PERMITTED."
+                : "\n\nAUTH CONTEXT: "
+                  + (userEmail == null || userEmail.isBlank()
+                        ? "No authenticated user."
+                        : "User email '" + userEmail + "' is not authorised for blog management.")
+                  + "\nBlog write operations (create_tech_blog, update_tech_blog, delete_tech_blog,\n"
+                  + "create_life_blog, update_life_blog, delete_life_blog) are NOT PERMITTED.\n"
+                  + "If the user asks to create, update, or delete blog posts, politely refuse and\n"
+                  + "tell them they must log in as the site owner first.";
         return SYSTEM_PROMPT + authBlock;
     }
 
@@ -115,7 +124,10 @@ public class ChatService {
                        WebGuideService webGuideService,
                        DeepThinkingService deepThinkingService,
                        ObjectMapper objectMapper,
-                       ObjectProvider<org.springframework.ai.tool.ToolCallbackProvider> mcpToolsProvider) {
+                       ObjectProvider<org.springframework.ai.tool.ToolCallbackProvider> mcpToolsProvider,
+                       ObjectProvider<VisitorAnalyticsTool> visitorAnalyticsToolProvider,
+                       ObjectProvider<WebOpsTool> webOpsToolProvider,
+                       ObjectProvider<WebSearchTool> webSearchToolProvider) {
         this.kb = kb;
         this.sse = sse;
         this.router = router;
@@ -127,15 +139,27 @@ public class ChatService {
         ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
         if (builder != null) {
             builder = builder.defaultSystem(SYSTEM_PROMPT);
+            // Remote MCP tool callbacks (when MCP servers are deployed)
             org.springframework.ai.tool.ToolCallbackProvider mcp = mcpToolsProvider.getIfAvailable();
             if (mcp != null) {
                 builder = builder.defaultToolCallbacks(mcp);
                 log.info("ChatClient wired with MCP tool callbacks.");
             }
+            // In-process tool beans (analytics, web-ops, web-search)
+            java.util.List<Object> inProcess = new java.util.ArrayList<>();
+            visitorAnalyticsToolProvider.ifAvailable(inProcess::add);
+            webOpsToolProvider.ifAvailable(inProcess::add);
+            webSearchToolProvider.ifAvailable(inProcess::add);
+            if (!inProcess.isEmpty()) {
+                builder = builder.defaultTools(inProcess.toArray());
+                log.info("ChatClient wired with {} in-process tool bean(s): {}",
+                        inProcess.size(),
+                        inProcess.stream().map(t -> t.getClass().getSimpleName()).toList());
+            }
             this.chatClient = builder.build();
         } else {
             this.chatClient = null;
-            log.warn("No ChatClient.Builder available — running in context-only fallback mode "
+            log.warn("No ChatClient.Builder available - running in context-only fallback mode "
                     + "(set OPENAI_API_KEY to enable LLM responses).");
         }
     }
