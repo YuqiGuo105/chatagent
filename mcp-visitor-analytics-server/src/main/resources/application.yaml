@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: mcp-visitor-analytics-server
+  datasource:
+    url: ${PORTFOLIO_DB_URL:jdbc:postgresql://localhost:5432/portfolio}
+    username: ${PORTFOLIO_DB_USER:postgres}
+    password: ${PORTFOLIO_DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  ai:
+    mcp:
+      server:
+        name: visitor-analytics-server
+        version: 0.0.1
+        type: ASYNC
+        sse-message-endpoint: /mcp/message
+
+server:
+  port: 8082

@@ -45,6 +45,18 @@ spring:
         index-type: HNSW
         table-name: kb_documents
         schema-name: public
+    mcp:
+      client:
+        enabled: true
+        type: ASYNC
+        sse:
+          connections:
+            websearch:
+              url: ${MCP_WEBSEARCH_URL:http://localhost:8081}
+            visitor-analytics:
+              url: ${MCP_VISITOR_ANALYTICS_URL:http://localhost:8082}
+            web-ops:
+              url: ${MCP_WEB_OPS_URL:http://localhost:8083}
 
 # Server Configuration
 server:

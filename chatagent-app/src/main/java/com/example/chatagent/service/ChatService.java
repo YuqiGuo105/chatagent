@@ -51,6 +51,24 @@ public class ChatService {
             Be concise, use markdown, and cite key facts inline when helpful.
             """;
 
+    /** Only this email is allowed to perform blog write operations. */
+    private static final String BLOG_OWNER_EMAIL = "yuqi.guo17@gmail.com";
+
+    /**
+     * Builds the full system prompt for this request, appending an AUTH CONTEXT block
+     * so the LLM knows whether blog write operations are permitted.
+     */
+    private static String buildSystemPrompt(String userEmail) {
+        boolean isOwner = BLOG_OWNER_EMAIL.equalsIgnoreCase(userEmail);
+        String authBlock = isOwner
+                ? """\n\nAUTH CONTEXT: User is authenticated as %s (site owner).\nBlog write operations (create_tech_blog, update_tech_blog, delete_tech_blog,\ncreate_life_blog, update_life_blog, delete_life_blog) are PERMITTED.""".formatted(userEmail)
+                : """\n\nAUTH CONTEXT: %s\nBlog write operations (create_tech_blog, update_tech_blog, delete_tech_blog,\ncreate_life_blog, update_life_blog, delete_life_blog) are NOT PERMITTED.\nIf the user asks to create, update, or delete blog posts, politely refuse and\ntell them they must log in as the site owner first."""
+                        .formatted(userEmail == null || userEmail.isBlank()
+                                ? "No authenticated user."
+                                : "User email '%s' is not authorised for blog management.".formatted(userEmail));
+        return SYSTEM_PROMPT + authBlock;
+    }
+
     private static final String USER_TEMPLATE = """
             CONTEXT:
             ---
@@ -96,7 +114,8 @@ public class ChatService {
                        HybridRetrievalService hybridRetrieval,
                        WebGuideService webGuideService,
                        DeepThinkingService deepThinkingService,
-                       ObjectMapper objectMapper) {
+                       ObjectMapper objectMapper,
+                       ObjectProvider<org.springframework.ai.tool.ToolCallbackProvider> mcpToolsProvider) {
         this.kb = kb;
         this.sse = sse;
         this.router = router;
@@ -106,8 +125,16 @@ public class ChatService {
         this.deepThinkingService = deepThinkingService;
         this.objectMapper = objectMapper;
         ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-        this.chatClient = builder == null ? null : builder.defaultSystem(SYSTEM_PROMPT).build();
-        if (this.chatClient == null) {
+        if (builder != null) {
+            builder = builder.defaultSystem(SYSTEM_PROMPT);
+            org.springframework.ai.tool.ToolCallbackProvider mcp = mcpToolsProvider.getIfAvailable();
+            if (mcp != null) {
+                builder = builder.defaultToolCallbacks(mcp);
+                log.info("ChatClient wired with MCP tool callbacks.");
+            }
+            this.chatClient = builder.build();
+        } else {
+            this.chatClient = null;
             log.warn("No ChatClient.Builder available — running in context-only fallback mode "
                     + "(set OPENAI_API_KEY to enable LLM responses).");
         }
@@ -167,7 +194,7 @@ public class ChatService {
             emit(emitter, "generate", "Generating answer",
                     Map.of("toolName", "llm_generate", "status", "running"));
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
-            String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter);
+            String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter, req.userEmail());
 
             sse.sendAnswerFinal(emitter, finalAnswer);
             emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
@@ -210,6 +237,7 @@ public class ChatService {
         }
     }
 
+
     /* ======================================================
        ENHANCE pipeline
        ====================================================== */
@@ -243,7 +271,7 @@ public class ChatService {
             emit(emitter, "generate", "Generating answer",
                     Map.of("toolName", "llm_generate", "status", "running"));
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
-            String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter);
+            String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter, req.userEmail());
 
             // 3. Extract key concepts (cheap, non-blocking from user's perspective)
             extractAndEmitKeyConcepts(finalAnswer, emitter);
@@ -362,7 +390,8 @@ public class ChatService {
         return sb.toString();
     }
 
-    private String streamAnswer(String question, String context, String sessionId, SseEmitter emitter) {
+    private String streamAnswer(String question, String context, String sessionId,
+                                   SseEmitter emitter, String userEmail) {
         if (chatClient == null) {
             String fallback = "I don't have an LLM provider configured right now. "
                     + "Here is the most relevant context I retrieved:\n\n" + context;
@@ -376,6 +405,7 @@ public class ChatService {
 
         AtomicReference<StringBuilder> acc = new AtomicReference<>(new StringBuilder());
         chatClient.prompt()
+                .system(buildSystemPrompt(userEmail))
                 .user(userPrompt)
                 .advisors(spec -> spec
                         .param(ChatMemory.CONVERSATION_ID, sessionId)

@@ -35,6 +35,9 @@
 	<modules>
 		<module>chatagent-common</module>
 		<module>chatagent-app</module>
+		<module>mcp-websearch-server</module>
+		<module>mcp-visitor-analytics-server</module>
+		<module>mcp-web-ops-server</module>
 	</modules>
 
 	<parent>

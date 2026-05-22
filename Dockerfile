@@ -4,12 +4,15 @@ FROM maven:3.9-eclipse-temurin-21 AS builder
 
 WORKDIR /build
 
-# Copy parent pom and sub-module poms first (layer cache for dependencies)
+# Copy parent pom and all sub-module poms first (layer cache for dependencies)
 COPY pom.xml .
 COPY mvnw mvnw
 COPY .mvn/ .mvn/
 COPY chatagent-common/pom.xml chatagent-common/pom.xml
 COPY chatagent-app/pom.xml chatagent-app/pom.xml
+COPY mcp-websearch-server/pom.xml mcp-websearch-server/pom.xml
+COPY mcp-visitor-analytics-server/pom.xml mcp-visitor-analytics-server/pom.xml
+COPY mcp-web-ops-server/pom.xml mcp-web-ops-server/pom.xml
 
 # Pre-fetch dependencies
 RUN ./mvnw dependency:go-offline -q || true
@@ -17,11 +20,14 @@ RUN ./mvnw dependency:go-offline -q || true
 # Copy source code for all modules
 COPY chatagent-common/src/ chatagent-common/src/
 COPY chatagent-app/src/ chatagent-app/src/
+COPY mcp-websearch-server/src/ mcp-websearch-server/src/
+COPY mcp-visitor-analytics-server/src/ mcp-visitor-analytics-server/src/
+COPY mcp-web-ops-server/src/ mcp-web-ops-server/src/
 
-# Build application (skip tests)
-RUN ./mvnw clean package -DskipTests -pl chatagent-app -am
+# Build all modules (skip tests)
+RUN ./mvnw clean package -DskipTests
 
-# Stage 2: Runtime
+# Stage 2: Runtime (chatagent-app)
 FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app

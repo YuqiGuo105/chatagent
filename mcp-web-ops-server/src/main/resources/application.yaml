@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: mcp-web-ops-server
+  datasource:
+    url: ${PORTFOLIO_DB_URL:jdbc:postgresql://localhost:5432/portfolio}
+    username: ${PORTFOLIO_DB_USER:postgres}
+    password: ${PORTFOLIO_DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  ai:
+    mcp:
+      server:
+        name: web-ops-server
+        version: 0.0.1
+        type: ASYNC
+        sse-message-endpoint: /mcp/message
+
+server:
+  port: 8083
+
+webops:
+  site-base-url: ${PORTFOLIO_SITE_URL:https://example.com}
+  # Set to false in production unless caller is authenticated
+  allow-writes: ${WEBOPS_ALLOW_WRITES:true}

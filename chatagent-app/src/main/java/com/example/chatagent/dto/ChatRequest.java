@@ -17,7 +17,8 @@ import java.util.List;
  *   "question": "What is the project about?",
  *   "mode": "FAST" | "DEEPTHINKING" | "WEB_GUIDE" | "ENHANCE",
  *   "scopeMode": "OWNER_ONLY" | "GENERAL",
- *   "fileUrls": ["https://..."]   // optional
+ *   "fileUrls": ["https://..."],  // optional
+ *   "userEmail": "user@example.com"  // optional; set by ChatWidget when user is authenticated
  * }
  * }</pre>
  */
@@ -28,12 +29,23 @@ public record ChatRequest(
         String question,  // the field the ChatWidget actually sends
         String mode,      // FAST | DEEPTHINKING | WEB_GUIDE | ENHANCE (default: FAST)
         String scopeMode,
-        List<String> fileUrls
+        List<String> fileUrls,
+        String userEmail  // Supabase-authenticated email; null/blank = anonymous
 ) {
     /** Returns the first non-blank of {@code question} / {@code message}. */
     public String safeMessage() {
         if (question != null && !question.isBlank()) return question.trim();
         return message == null ? "" : message.trim();
+    }
+
+    /** Normalises {@code userEmail}: trims whitespace and lower-cases; returns {@code ""} for null/blank. */
+    public String safeUserEmail() {
+        return (userEmail == null || userEmail.isBlank()) ? "" : userEmail.trim().toLowerCase();
+    }
+
+    /** Returns {@code true} only when the authenticated email matches the site owner. */
+    public boolean isBlogOwner() {
+        return "yuqi.guo17@gmail.com".equals(safeUserEmail());
     }
 
     public boolean isOwnerOnly() {
