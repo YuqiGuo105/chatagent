@@ -4,22 +4,20 @@ import io.modelcontextprotocol.client.McpAsyncClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.mcp.AsyncMcpToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 
 /**
- * Wires the three MCP servers (websearch / visitor-analytics / web-ops) as a single
- * {@link ToolCallbackProvider} that any {@code ChatClient.Builder} can inject via
- * {@code .defaultToolCallbacks(provider)}.
- *
- * The underlying {@link McpAsyncClient} beans are auto-configured by
- * {@code spring-ai-starter-mcp-client-webflux} from the {@code spring.ai.mcp.client.sse.connections}
- * map in application.yaml.
+ * Wires external MCP servers as a {@link ToolCallbackProvider} when
+ * {@code spring.ai.mcp.client.enabled=true} and external servers are running.
+ * Only active when at least one {@link McpAsyncClient} bean is present.
  */
 @Slf4j
 @Configuration
+@ConditionalOnBean(McpAsyncClient.class)
 public class McpToolsConfig {
 
     @Bean

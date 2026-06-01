@@ -4,6 +4,10 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: 20
+  ai:
+    mcp:
+      client:
+        enabled: false  # Tools are in-process; no external MCP servers on Railway
 
 logging:
   level:

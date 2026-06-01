@@ -47,18 +47,9 @@ spring:
         schema-name: public
     mcp:
       client:
-        enabled: true
-        type: ASYNC
-        sse:
-          connections:
-            websearch:
-              url: ${MCP_WEBSEARCH_URL:http://localhost:8081}
-            visitor-analytics:
-              url: ${MCP_VISITOR_ANALYTICS_URL:http://localhost:8082}
-            web-ops:
-              url: ${MCP_WEB_OPS_URL:http://localhost:8083}
-            portfolio-sql:
-              url: ${MCP_PORTFOLIO_SQL_URL:http://localhost:8084}
+        # Disabled: tools are now in-process (InProcessToolsConfig).
+        # Re-enable only if external MCP servers are deployed alongside chatagent.
+        enabled: false
 
 # Server Configuration
 server:
