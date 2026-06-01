@@ -18,7 +18,7 @@ public class RuleBasedIntentRouter implements IntentRouter {
 
     // ── Portfolio data patterns → query_portfolio_database ───────────────────
     private static final Pattern PORTFOLIO_DB = Pattern.compile(
-            "(?i)\\b(project|blog|experience|skill|work|job|company|role|技能|项目|博客|经历|作品|简历" +
+            "(?i)\\b(projects?|blogs?|experiences?|skills?|work(s|ed|ing)?|jobs?|compan(y|ies)|roles?|技能|项目|博客|经历|作品|简历" +
             "|教育|公司|职位|published|tech.?stack|github\\.?url|demo|portfolio|life.?blog|life blog" +
             "|tech.?blog|what.*built|what.*made|when.*worked|where.*worked|latest.*project|recent.*project)\\b");
 
