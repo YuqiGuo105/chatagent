@@ -13,6 +13,7 @@ COPY chatagent-app/pom.xml chatagent-app/pom.xml
 COPY mcp-websearch-server/pom.xml mcp-websearch-server/pom.xml
 COPY mcp-visitor-analytics-server/pom.xml mcp-visitor-analytics-server/pom.xml
 COPY mcp-web-ops-server/pom.xml mcp-web-ops-server/pom.xml
+COPY mcp-portfolio-sql-server/pom.xml mcp-portfolio-sql-server/pom.xml
 
 # Pre-fetch dependencies
 RUN ./mvnw dependency:go-offline -q || true
@@ -23,6 +24,7 @@ COPY chatagent-app/src/ chatagent-app/src/
 COPY mcp-websearch-server/src/ mcp-websearch-server/src/
 COPY mcp-visitor-analytics-server/src/ mcp-visitor-analytics-server/src/
 COPY mcp-web-ops-server/src/ mcp-web-ops-server/src/
+COPY mcp-portfolio-sql-server/src/ mcp-portfolio-sql-server/src/
 
 # Build all modules (skip tests)
 RUN ./mvnw clean package -DskipTests
