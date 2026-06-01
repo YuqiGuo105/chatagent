@@ -15,7 +15,7 @@ import java.util.List;
  * {
  *   "sessionId": "abc-123",
  *   "question": "What is the project about?",
- *   "mode": "FAST" | "DEEPTHINKING" | "WEB_GUIDE" | "ENHANCE",
+ *   "mode": "FAST" | "DEEPTHINKING",
  *   "scopeMode": "OWNER_ONLY" | "GENERAL",
  *   "fileUrls": ["https://..."],  // optional
  *   "userEmail": "user@example.com"  // optional; set by ChatWidget when user is authenticated
@@ -27,7 +27,7 @@ public record ChatRequest(
         String sessionId,
         String message,   // kept for backward-compat; prefer "question"
         String question,  // the field the ChatWidget actually sends
-        String mode,      // FAST | DEEPTHINKING | WEB_GUIDE | ENHANCE (default: FAST)
+        String mode,      // FAST | DEEPTHINKING (default: FAST)
         String scopeMode,
         List<String> fileUrls,
         String userEmail  // Supabase-authenticated email; null/blank = anonymous
@@ -53,6 +53,4 @@ public record ChatRequest(
     }
 
     public boolean isDeepThinking() { return "DEEPTHINKING".equalsIgnoreCase(mode); }
-    public boolean isWebGuide()     { return "WEB_GUIDE".equalsIgnoreCase(mode); }
-    public boolean isEnhance()      { return "ENHANCE".equalsIgnoreCase(mode); }
 }

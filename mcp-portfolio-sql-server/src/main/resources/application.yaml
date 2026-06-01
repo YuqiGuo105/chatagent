@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: mcp-portfolio-sql-server
+
+  ai:
+    mcp:
+      server:
+        name: portfolio-sql-server
+        version: 0.0.1
+        type: ASYNC
+        sse-message-endpoint: /mcp/message
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          # cheap model is enough for NL->SQL with strict schema prompting
+          model: ${PORTFOLIO_SQL_NL2SQL_MODEL:gpt-4o-mini}
+          temperature: 0.0
+
+  # Portfolio Supabase datasource (READ-ONLY account expected)
+  datasource:
+    url: ${PORTFOLIO_DB_URL:}
+    username: ${PORTFOLIO_DB_USER:portfolio_reader}
+    password: ${PORTFOLIO_DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 10000
+      read-only: true
+
+server:
+  port: ${MCP_PORTFOLIO_SQL_PORT:8084}
+
+portfolio-sql:
+  # Whitelist of view names allowed in generated SQL. SqlValidator enforces this.
+  allowed-views:
+    - v_portfolio_projects
+    - v_portfolio_tech_blogs
+    - v_portfolio_life_blogs
+    - v_portfolio_experience
+  # Hard caps enforced at execution time.
+  execution:
+    max-rows: 50
+    query-timeout-seconds: 5
+    default-limit: 10
+  cache:
+    metadata-ttl-minutes: 60
+    result-ttl-minutes: 5
+    result-max-size: 200
+
+logging:
+  level:
+    root: INFO
+    com.example.mcp.portfoliosql: DEBUG

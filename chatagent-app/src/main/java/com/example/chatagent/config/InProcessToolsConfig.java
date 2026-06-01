@@ -2,6 +2,8 @@ package com.example.chatagent.config;
 
 import com.example.chatagent.tool.analytics.VisitorAnalyticsService;
 import com.example.chatagent.tool.analytics.VisitorAnalyticsTool;
+import com.example.chatagent.tool.concepts.KeyConceptExtractorTool;
+import com.example.chatagent.tool.sitetour.SiteTourTool;
 import com.example.chatagent.tool.webops.BlogService;
 import com.example.chatagent.tool.webops.PerformanceService;
 import com.example.chatagent.tool.webops.SeoService;
@@ -9,6 +11,8 @@ import com.example.chatagent.tool.webops.WebOpsTool;
 import com.example.chatagent.tool.websearch.GoogleSearchService;
 import com.example.chatagent.tool.websearch.HighlightService;
 import com.example.chatagent.tool.websearch.WebSearchTool;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.ai.chat.client.ChatClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -106,5 +110,23 @@ public class InProcessToolsConfig {
                                        HighlightService highlightService) {
         log.info("Registering in-process WebSearchTool");
         return new WebSearchTool(googleSearchService, highlightService);
+    }
+
+    // ----------------------------------------------------------------
+    // Site tour + concept tools  (always available)
+    // ----------------------------------------------------------------
+
+    @Bean
+    public SiteTourTool siteTourTool(ChatClient.Builder chatClientBuilder,
+                                     ObjectMapper objectMapper) {
+        log.info("Registering in-process SiteTourTool");
+        return new SiteTourTool(chatClientBuilder, objectMapper);
+    }
+
+    @Bean
+    public KeyConceptExtractorTool keyConceptExtractorTool(ChatClient.Builder chatClientBuilder,
+                                                           ObjectMapper objectMapper) {
+        log.info("Registering in-process KeyConceptExtractorTool");
+        return new KeyConceptExtractorTool(chatClientBuilder, objectMapper);
     }
 }

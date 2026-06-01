@@ -57,6 +57,8 @@ spring:
               url: ${MCP_VISITOR_ANALYTICS_URL:http://localhost:8082}
             web-ops:
               url: ${MCP_WEB_OPS_URL:http://localhost:8083}
+            portfolio-sql:
+              url: ${MCP_PORTFOLIO_SQL_URL:http://localhost:8084}
 
 # Server Configuration
 server:

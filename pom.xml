@@ -38,6 +38,7 @@
 		<module>mcp-websearch-server</module>
 		<module>mcp-visitor-analytics-server</module>
 		<module>mcp-web-ops-server</module>
+		<module>mcp-portfolio-sql-server</module>
 	</modules>
 
 	<parent>
