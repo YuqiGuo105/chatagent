@@ -26,8 +26,8 @@ COPY mcp-visitor-analytics-server/src/ mcp-visitor-analytics-server/src/
 COPY mcp-web-ops-server/src/ mcp-web-ops-server/src/
 COPY mcp-portfolio-sql-server/src/ mcp-portfolio-sql-server/src/
 
-# Build all modules (skip tests)
-RUN ./mvnw clean package -DskipTests
+# Build only chatagent-app and its dependencies (chatagent-common)
+RUN ./mvnw clean package -DskipTests -pl chatagent-app -am
 
 # Stage 2: Runtime (chatagent-app)
 FROM eclipse-temurin:21-jre-jammy
