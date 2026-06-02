@@ -6,6 +6,7 @@ import com.example.chatagent.service.intent.IntentRouter;
 import com.example.chatagent.service.intent.IntentRouter.IntentDecision;
 import com.example.chatagent.tool.analytics.VisitorAnalyticsTool;
 import com.example.chatagent.tool.concepts.KeyConceptExtractorTool;
+import com.example.chatagent.tool.portfolio.PortfolioSqlTool;
 import com.example.chatagent.tool.sitetour.SiteTourTool;
 import com.example.chatagent.tool.webops.WebOpsTool;
 import com.example.chatagent.tool.websearch.WebSearchTool;
@@ -68,9 +69,10 @@ public class ChatService {
 
     /**
      * Builds the full system prompt for this request, appending an AUTH CONTEXT block
-     * so the LLM knows whether blog write operations are permitted.
+     * so the LLM knows whether blog write operations are permitted, and optional
+     * TOOL GUIDANCE when the intent router hints at a specific tool.
      */
-    private static String buildSystemPrompt(String userEmail) {
+    private static String buildSystemPrompt(String userEmail, List<String> toolHints) {
         boolean isOwner = BLOG_OWNER_EMAIL.equalsIgnoreCase(userEmail);
         String authBlock = isOwner
                 ? "\n\nAUTH CONTEXT: User is authenticated as " + userEmail + " (site owner).\n"
@@ -84,7 +86,14 @@ public class ChatService {
                   + "create_life_blog, update_life_blog, delete_life_blog) are NOT PERMITTED.\n"
                   + "If the user asks to create, update, or delete blog posts, politely refuse and\n"
                   + "tell them they must log in as the site owner first.";
-        return SYSTEM_PROMPT + authBlock;
+        String toolBlock = "";
+        if (toolHints != null && !toolHints.isEmpty()) {
+            toolBlock = "\n\nTOOL GUIDANCE: For this question, you MUST call the following "
+                    + "tool(s) to answer accurately: " + String.join(", ", toolHints) + "."
+                    + "\nDo not answer from general knowledge alone — use the tool to retrieve "
+                    + "real data and then present it to the user.";
+        }
+        return SYSTEM_PROMPT + authBlock + toolBlock;
     }
 
     private static final String USER_TEMPLATE = """
@@ -126,7 +135,8 @@ public class ChatService {
                        ObjectProvider<WebOpsTool> webOpsToolProvider,
                        ObjectProvider<WebSearchTool> webSearchToolProvider,
                        ObjectProvider<SiteTourTool> siteTourToolProvider,
-                       ObjectProvider<KeyConceptExtractorTool> keyConceptExtractorToolProvider) {
+                       ObjectProvider<KeyConceptExtractorTool> keyConceptExtractorToolProvider,
+                       ObjectProvider<PortfolioSqlTool> portfolioSqlToolProvider) {
         this.kb = kb;
         this.sse = sse;
         this.router = router;
@@ -151,6 +161,7 @@ public class ChatService {
             webSearchToolProvider.ifAvailable(inProcess::add);
             siteTourToolProvider.ifAvailable(inProcess::add);
             keyConceptExtractorToolProvider.ifAvailable(inProcess::add);
+            portfolioSqlToolProvider.ifAvailable(inProcess::add);
             if (!inProcess.isEmpty()) {
                 builder = builder.defaultTools(inProcess.toArray());
                 log.info("ChatClient wired with {} in-process tool bean(s): {}",
@@ -230,7 +241,8 @@ public class ChatService {
             emit(emitter, "generate", "Generating answer",
                     Map.of("toolName", "llm_generate", "status", "running"));
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
-            String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter, req.userEmail());
+            String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter,
+                    req.userEmail(), intent.toolHints());
 
             sse.sendAnswerFinal(emitter, finalAnswer);
             emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
@@ -354,7 +366,7 @@ public class ChatService {
     }
 
     private String streamAnswer(String question, String context, String sessionId,
-                                   SseEmitter emitter, String userEmail) {
+                                   SseEmitter emitter, String userEmail, List<String> toolHints) {
         if (chatClient == null) {
             String fallback = "I don't have an LLM provider configured right now. "
                     + "Here is the most relevant context I retrieved:\n\n" + context;
@@ -368,7 +380,7 @@ public class ChatService {
 
         AtomicReference<StringBuilder> acc = new AtomicReference<>(new StringBuilder());
         chatClient.prompt()
-                .system(buildSystemPrompt(userEmail))
+                .system(buildSystemPrompt(userEmail, toolHints))
                 .user(userPrompt)
                 .advisors(spec -> spec
                         .param(ChatMemory.CONVERSATION_ID, sessionId)

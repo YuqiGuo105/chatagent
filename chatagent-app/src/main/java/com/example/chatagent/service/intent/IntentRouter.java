@@ -18,7 +18,7 @@ public interface IntentRouter {
     record IntentDecision(
             boolean useRAG,
             String ragScope,          // KB_ONLY | GITHUB_ONLY | HYBRID | NONE
-            List<String> toolHints,   // tool names to nudge towards
+            List<String> toolHints,   // tool names to nudge towards (injected into system prompt)
             String reasoning          // logged for debugging
     ) {
         public static IntentDecision rag(String scope, String reason) {
@@ -26,6 +26,10 @@ public interface IntentRouter {
         }
         public static IntentDecision tool(String toolName, String reason) {
             return new IntentDecision(false, "NONE", List.of(toolName), reason);
+        }
+        /** RAG retrieval runs AND the LLM is nudged to call the given tool with the retrieved context. */
+        public static IntentDecision ragPlusTool(String scope, String toolName, String reason) {
+            return new IntentDecision(true, scope, List.of(toolName), reason);
         }
         public static IntentDecision free(String reason) {
             return new IntentDecision(false, "NONE", List.of(), reason);

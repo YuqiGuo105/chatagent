@@ -3,6 +3,12 @@ package com.example.chatagent.config;
 import com.example.chatagent.tool.analytics.VisitorAnalyticsService;
 import com.example.chatagent.tool.analytics.VisitorAnalyticsTool;
 import com.example.chatagent.tool.concepts.KeyConceptExtractorTool;
+import com.example.chatagent.tool.portfolio.NL2SqlService;
+import com.example.chatagent.tool.portfolio.PortfolioSqlProperties;
+import com.example.chatagent.tool.portfolio.PortfolioSqlTool;
+import com.example.chatagent.tool.portfolio.QueryExecutor;
+import com.example.chatagent.tool.portfolio.SqlValidator;
+import com.example.chatagent.tool.portfolio.ViewMetadataCache;
 import com.example.chatagent.tool.sitetour.SiteTourTool;
 import com.example.chatagent.tool.webops.BlogService;
 import com.example.chatagent.tool.webops.PerformanceService;
@@ -20,7 +26,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.Resource;
 import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Creates in-process tool beans so the LLM can call visitor-analytics, blog CRUD,
@@ -128,5 +138,55 @@ public class InProcessToolsConfig {
                                                            ObjectMapper objectMapper) {
         log.info("Registering in-process KeyConceptExtractorTool");
         return new KeyConceptExtractorTool(chatClientBuilder, objectMapper);
+    }
+
+    // ----------------------------------------------------------------
+    // Portfolio SQL tools  (need portfolio DB)
+    // ----------------------------------------------------------------
+
+    @Bean
+    @ConditionalOnBean(name = "portfolioJdbc")
+    public ViewMetadataCache viewMetadataCache(
+            @Qualifier("portfolioJdbc") JdbcTemplate portfolioJdbc,
+            PortfolioSqlProperties portfolioSqlProperties) {
+        log.info("Registering in-process ViewMetadataCache");
+        ViewMetadataCache cache = new ViewMetadataCache(portfolioJdbc, portfolioSqlProperties);
+        cache.load();
+        return cache;
+    }
+
+    @Bean
+    @ConditionalOnBean(name = "portfolioJdbc")
+    public SqlValidator sqlValidator(PortfolioSqlProperties portfolioSqlProperties) {
+        return new SqlValidator(portfolioSqlProperties);
+    }
+
+    @Bean
+    @ConditionalOnBean(name = "portfolioJdbc")
+    public QueryExecutor queryExecutor(
+            @Qualifier("portfolioJdbc") JdbcTemplate portfolioJdbc,
+            PortfolioSqlProperties portfolioSqlProperties) {
+        return new QueryExecutor(portfolioJdbc, portfolioSqlProperties);
+    }
+
+    @Bean
+    @ConditionalOnBean(name = "portfolioJdbc")
+    public NL2SqlService nl2SqlService(
+            ChatClient.Builder chatClientBuilder,
+            ViewMetadataCache viewMetadataCache,
+            PortfolioSqlProperties portfolioSqlProperties,
+            @Value("classpath:prompts/nl2sql-system.txt") Resource systemPromptResource) throws IOException {
+        log.info("Registering in-process NL2SqlService");
+        String template = new String(systemPromptResource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        return new NL2SqlService(chatClientBuilder, viewMetadataCache, portfolioSqlProperties, template);
+    }
+
+    @Bean
+    @ConditionalOnBean(NL2SqlService.class)
+    public PortfolioSqlTool portfolioSqlTool(NL2SqlService nl2SqlService,
+                                             SqlValidator sqlValidator,
+                                             QueryExecutor queryExecutor) {
+        log.info("Registering in-process PortfolioSqlTool");
+        return new PortfolioSqlTool(nl2SqlService, sqlValidator, queryExecutor);
     }
 }

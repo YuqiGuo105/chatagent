@@ -172,3 +172,21 @@ google:
 
 webops:
   allow-writes: ${WEBOPS_ALLOW_WRITES:true}
+
+# ============================================================
+# Portfolio SQL tool — in-process NL2SQL query engine
+# ============================================================
+portfolio-sql:
+  allowed-views:
+    - v_portfolio_projects
+    - v_portfolio_tech_blogs
+    - v_portfolio_life_blogs
+    - v_portfolio_experience
+  execution:
+    max-rows: 50
+    query-timeout-seconds: 5
+    default-limit: 10
+  cache:
+    metadata-ttl-minutes: 60
+    result-ttl-minutes: 5
+    result-max-size: 200

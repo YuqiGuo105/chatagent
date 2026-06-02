@@ -55,8 +55,8 @@ public class RuleBasedIntentRouter implements IntentRouter {
                     "User asking about visitor/analytics data");
         }
         if (PORTFOLIO_DB.matcher(q).find()) {
-            return IntentDecision.tool("query_portfolio_database",
-                    "User asking about portfolio projects/blogs/experience");
+            return IntentDecision.ragPlusTool("KB_ONLY", "query_portfolio_database",
+                    "User asking about portfolio projects/blogs/experience — RAG + SQL tool");
         }
         if (WEB_SEARCH.matcher(q).find()) {
             return IntentDecision.tool("web_search_with_highlight",

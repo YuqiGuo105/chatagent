@@ -76,6 +76,13 @@
 			<version>1.17.2</version>
 		</dependency>
 
+		<!-- JSQLParser: SQL validation for in-process PortfolioSqlTool -->
+		<dependency>
+			<groupId>com.github.jsqlparser</groupId>
+			<artifactId>jsqlparser</artifactId>
+			<version>4.9</version>
+		</dependency>
+
 		<!-- Lombok -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
