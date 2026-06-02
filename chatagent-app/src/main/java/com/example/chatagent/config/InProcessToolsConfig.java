@@ -152,7 +152,6 @@ public class InProcessToolsConfig {
     // ----------------------------------------------------------------
 
     @Bean
-    @ConditionalOnBean(name = "portfolioJdbc")
     public ViewMetadataCache viewMetadataCache(
             @Qualifier("portfolioJdbc") JdbcTemplate portfolioJdbc,
             PortfolioSqlProperties portfolioSqlProperties) {
@@ -163,13 +162,11 @@ public class InProcessToolsConfig {
     }
 
     @Bean
-    @ConditionalOnBean(name = "portfolioJdbc")
     public SqlValidator sqlValidator(PortfolioSqlProperties portfolioSqlProperties) {
         return new SqlValidator(portfolioSqlProperties);
     }
 
     @Bean
-    @ConditionalOnBean(name = "portfolioJdbc")
     public QueryExecutor queryExecutor(
             @Qualifier("portfolioJdbc") JdbcTemplate portfolioJdbc,
             PortfolioSqlProperties portfolioSqlProperties) {
@@ -177,7 +174,6 @@ public class InProcessToolsConfig {
     }
 
     @Bean
-    @ConditionalOnBean(name = "portfolioJdbc")
     public NL2SqlService nl2SqlService(
             ChatClient.Builder chatClientBuilder,
             ViewMetadataCache viewMetadataCache,
@@ -189,7 +185,6 @@ public class InProcessToolsConfig {
     }
 
     @Bean
-    @ConditionalOnBean(NL2SqlService.class)
     public PortfolioSqlTool portfolioSqlTool(NL2SqlService nl2SqlService,
                                              SqlValidator sqlValidator,
                                              QueryExecutor queryExecutor) {
