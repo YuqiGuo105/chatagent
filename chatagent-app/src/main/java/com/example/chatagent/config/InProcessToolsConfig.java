@@ -26,6 +26,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.io.Resource;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -40,9 +41,15 @@ import java.nio.charset.StandardCharsets;
  * <p>DB-dependent tools are conditional on {@link PortfolioDataSourceConfig}
  * having created the {@code portfolioJdbc} bean (i.e. {@code PORTFOLIO_DB_URL} is set).
  * WebSearch tools are conditional on {@code GOOGLE_API_KEY} being present.
+ *
+ * <p>{@code @Import(PortfolioDataSourceConfig.class)} ensures {@code portfolioJdbc}
+ * is registered before {@code @ConditionalOnBean} is evaluated in this class —
+ * without it, alphabetical scan order (I before P) causes the condition to always
+ * be false.</p>
  */
 @Slf4j
 @Configuration
+@Import(PortfolioDataSourceConfig.class)
 public class InProcessToolsConfig {
 
     // ----------------------------------------------------------------
