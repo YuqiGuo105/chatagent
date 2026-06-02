@@ -6,37 +6,38 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
 
 /**
- * Creates a secondary {@link JdbcTemplate} for the Portfolio Supabase database
- * only when the {@code PORTFOLIO_DB_URL} environment variable is present.
+ * Creates a {@link JdbcTemplate} ("portfolioJdbc") for portfolio data queries.
  *
- * <p>Set these env vars on Railway to enable visitor-analytics and blog tools:
- * <ul>
- *   <li>{@code PORTFOLIO_DB_URL}  — full JDBC URL, e.g.
- *       {@code jdbc:postgresql://db.xxx.supabase.co:5432/postgres}</li>
- *   <li>{@code PORTFOLIO_DB_USER} — default {@code postgres}</li>
- *   <li>{@code PORTFOLIO_DB_PASSWORD}</li>
- * </ul>
+ * <p>Two modes:
+ * <ol>
+ *   <li><b>Separate DB</b> — when {@code PORTFOLIO_DB_URL} is set, a dedicated
+ *       HikariCP pool is created pointing at that URL (e.g. a separate Supabase
+ *       project).</li>
+ *   <li><b>Shared DB (default)</b> — when {@code PORTFOLIO_DB_URL} is absent,
+ *       the main Spring Boot {@link DataSource} is reused. This is the normal
+ *       case when both RAG and portfolio data live in the same Supabase DB
+ *       (i.e. {@code SPRING_DATASOURCE_URL} already points at Supabase).</li>
+ * </ol>
  */
 @Slf4j
 @Configuration
 public class PortfolioDataSourceConfig {
 
-    /**
-     * Only created when PORTFOLIO_DB_URL is set and non-empty.
-     * Uses a simple HikariCP pool via Spring Boot's DataSourceBuilder.
-     */
+    // ── Mode 1: dedicated portfolio DB ────────────────────────────────────────
+
     @Bean("portfolioDataSource")
     @ConditionalOnExpression("!'${PORTFOLIO_DB_URL:}'.isEmpty()")
     public DataSource portfolioDataSource(
             @Value("${PORTFOLIO_DB_URL}") String url,
             @Value("${PORTFOLIO_DB_USER:postgres}") String user,
             @Value("${PORTFOLIO_DB_PASSWORD:postgres}") String password) {
-        log.info("Portfolio DataSource configured — connecting to Supabase portfolio DB");
+        log.info("Portfolio DataSource: dedicated pool → {}", url.replaceAll("password=[^&]*", "password=***"));
         org.springframework.boot.jdbc.DataSourceBuilder<?> builder =
                 org.springframework.boot.jdbc.DataSourceBuilder.create();
         builder.url(url);
@@ -48,8 +49,23 @@ public class PortfolioDataSourceConfig {
 
     @Bean("portfolioJdbc")
     @ConditionalOnExpression("!'${PORTFOLIO_DB_URL:}'.isEmpty()")
-    public JdbcTemplate portfolioJdbc(
+    public JdbcTemplate portfolioJdbcDedicated(
             @Qualifier("portfolioDataSource") DataSource portfolioDataSource) {
+        log.info("portfolioJdbc → dedicated DataSource");
         return new JdbcTemplate(portfolioDataSource);
+    }
+
+    // ── Mode 2: reuse main datasource (Supabase unified) ──────────────────────
+
+    /**
+     * When PORTFOLIO_DB_URL is absent, "portfolioJdbc" simply wraps the
+     * primary DataSource.  The portfolio views (v_portfolio_*) must exist
+     * in the same database as {@code SPRING_DATASOURCE_URL}.
+     */
+    @Bean("portfolioJdbc")
+    @ConditionalOnExpression("'${PORTFOLIO_DB_URL:}'.isEmpty()")
+    public JdbcTemplate portfolioJdbcShared(DataSource dataSource) {
+        log.info("portfolioJdbc → shared main DataSource (Supabase unified mode)");
+        return new JdbcTemplate(dataSource);
     }
 }
