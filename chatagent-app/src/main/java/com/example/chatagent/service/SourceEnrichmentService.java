@@ -4,20 +4,26 @@ import com.example.chatagent.dto.SourceCardDto;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Converts RAG-retrieved {@link Document} chunks into enriched {@link SourceCardDto} objects
  * by joining against the portfolio views ({@code v_portfolio_life_blogs},
  * {@code v_portfolio_tech_blogs}, {@code v_portfolio_projects}).
  *
- * <p>Only documents whose {@code source} metadata belongs to a linkable content type
- * ({@code life_blogs}, {@code Blogs}, {@code Projects}) are enriched.
- * Results are deduplicated by ({@code source}, {@code source_id}) so that multiple
- * chunks from the same post produce only one card.</p>
+ * <p>Relevance is decided purely by the vector store's similarity score
+ * ({@link Document#getScore()}): only chunks whose score meets
+ * {@code chat.source-cards.min-score} (default {@code 0.75}) are eligible, and results are
+ * deduplicated by ({@code source}, {@code source_id}) while preserving RAG ranking order.
+ * This avoids any language-specific heuristics.</p>
  */
 @Slf4j
 @Service
@@ -26,21 +32,32 @@ public class SourceEnrichmentService {
     private static final Set<String> LINKABLE_SOURCES = Set.of("life_blogs", "Blogs", "Projects");
 
     private final JdbcTemplate portfolioJdbc;
+    private final double minScore;
 
-    public SourceEnrichmentService(@Qualifier("portfolioJdbc") JdbcTemplate portfolioJdbc) {
+    public SourceEnrichmentService(@Qualifier("portfolioJdbc") JdbcTemplate portfolioJdbc,
+                                   @Value("${chat.source-cards.min-score:0.75}") double minScore) {
         this.portfolioJdbc = portfolioJdbc;
+        this.minScore = minScore;
     }
 
     /**
-     * Enriches a list of RAG documents and returns at most {@code maxCards} source cards,
-     * deduped and ordered by their first appearance in the hit list.
+     * Enriches RAG documents into at most {@code maxCards} source cards.
+     * Only documents whose similarity score is ≥ {@code chat.source-cards.min-score} are
+     * eligible; if no score is present on a document, that document is skipped to avoid
+     * showing potentially unrelated cards.
      */
     public List<SourceCardDto> enrich(List<Document> docs, int maxCards) {
         if (docs == null || docs.isEmpty()) return List.of();
 
-        // Collect unique (source, source_id) pairs — preserve first-seen order
+        // Collect unique (source, source_id) pairs — preserve RAG ranking order
+        // and require a similarity score above the configured threshold.
         LinkedHashMap<String, String> seen = new LinkedHashMap<>(); // key = "source|id"
         for (Document doc : docs) {
+            Double score = doc.getScore();
+            if (score == null || score < minScore) {
+                log.debug("Skipping source card: score={} below min={}", score, minScore);
+                continue;
+            }
             Map<String, Object> meta = doc.getMetadata();
             String source   = metaStr(meta, "source");
             String sourceId = metaStr(meta, "source_id");
@@ -55,9 +72,9 @@ public class SourceEnrichmentService {
 
         List<SourceCardDto> cards = new ArrayList<>();
         for (Map.Entry<String, String> entry : seen.entrySet()) {
-            String[] parts    = entry.getKey().split("\\|", 2);
-            String source     = parts[0];
-            String rawId      = parts[1];
+            String[] parts = entry.getKey().split("\\|", 2);
+            String source  = parts[0];
+            String rawId   = parts[1];
             try {
                 SourceCardDto card = lookupCard(source, rawId);
                 if (card != null) cards.add(card);

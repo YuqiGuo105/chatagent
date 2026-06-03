@@ -248,7 +248,7 @@ public class ChatService {
             String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter,
                     req.userEmail(), intent.toolHints());
 
-            emitSourceCards(kbHits, finalAnswer, req.safeMessage(), emitter);
+            emitSourceCards(kbHits, emitter);
             sse.sendAnswerFinal(emitter, finalAnswer);
             emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
             emitter.complete();
@@ -282,7 +282,7 @@ public class ChatService {
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
             String finalAnswer = deepThinkingService.handle(req.safeMessage(), context, sid, emitter);
 
-            emitSourceCards(kbHits, finalAnswer, req.safeMessage(), emitter);
+            emitSourceCards(kbHits, emitter);
             sse.sendAnswerFinal(emitter, finalAnswer);
             emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
             emitter.complete();
@@ -296,24 +296,16 @@ public class ChatService {
     // ── Source card emission ─────────────────────────────────────────────────
 
     /**
-     * Enriches KB hits with source metadata and emits a {@code sources_found} SSE event
-     * for any card whose title is actually referenced by the final answer (or the question).
-     * This avoids attaching unrelated cards when RAG pulls in additional context that the
-     * LLM did not end up using.
+     * Enriches KB hits with source metadata and emits a {@code sources_found} SSE event.
+     * Relevance is decided by vector-store similarity score inside
+     * {@link SourceEnrichmentService#enrich(java.util.List, int)} — no linguistic heuristics.
      */
-    private void emitSourceCards(List<Document> kbHits, String answerText, String questionText, SseEmitter emitter) {
+    private void emitSourceCards(List<Document> kbHits, SseEmitter emitter) {
         if (kbHits == null || kbHits.isEmpty()) return;
         try {
-            List<SourceCardDto> all = sourceEnrichment.enrich(kbHits, 10);
-            if (all.isEmpty()) return;
-            String haystack = ((answerText == null ? "" : answerText) + " "
-                    + (questionText == null ? "" : questionText)).toLowerCase();
-            List<SourceCardDto> cards = all.stream()
-                    .filter(c -> titleMentioned(c.title(), haystack))
-                    .limit(3)
-                    .toList();
+            List<SourceCardDto> cards = sourceEnrichment.enrich(kbHits, 3);
             if (cards.isEmpty()) {
-                log.debug("Source cards filtered out: no titles matched answer/question text");
+                log.debug("Source cards filtered out: no chunks above similarity threshold");
                 return;
             }
             List<Map<String, Object>> payload = cards.stream().map(c -> {
@@ -331,21 +323,6 @@ public class ChatService {
         } catch (Exception ex) {
             log.warn("Source card enrichment failed: {}", ex.getMessage());
         }
-    }
-
-    /**
-     * True when {@code haystack} contains the full lowercased title, or contains any
-     * distinctive (alphanumeric) token of length ≥ 5 from the title. Short or stop-word
-     * tokens are ignored to avoid false matches.
-     */
-    private static boolean titleMentioned(String title, String haystack) {
-        if (title == null || title.isBlank()) return false;
-        String t = title.toLowerCase().trim();
-        if (haystack.contains(t)) return true;
-        for (String tok : t.split("[^\\p{L}\\p{N}]+")) {
-            if (tok.length() >= 5 && haystack.contains(tok)) return true;
-        }
-        return false;
     }
 
     private List<Document> runKbSearch(String question, SseEmitter emitter) {
