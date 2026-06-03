@@ -243,12 +243,12 @@ public class ChatService {
             String context = buildCombinedContext(kbHits, githubHits);
 
             emit(emitter, "generate", "Generating answer",
-            Map.of("toolName", "llm_generate", "status", "running"));
-        emitSourceCards(kbHits, emitter);
+                    Map.of("toolName", "llm_generate", "status", "running"));
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
             String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter,
                     req.userEmail(), intent.toolHints());
 
+            emitSourceCards(kbHits, finalAnswer, req.safeMessage(), emitter);
             sse.sendAnswerFinal(emitter, finalAnswer);
             emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
             emitter.complete();
@@ -278,11 +278,11 @@ public class ChatService {
 
             emit(emitter, "generate", "Deep reasoning started",
                     Map.of("toolName", "llm_deep_think", "status", "running"));
-                    emitSourceCards(kbHits, emitter);
 
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
             String finalAnswer = deepThinkingService.handle(req.safeMessage(), context, sid, emitter);
 
+            emitSourceCards(kbHits, finalAnswer, req.safeMessage(), emitter);
             sse.sendAnswerFinal(emitter, finalAnswer);
             emit(emitter, "done", "Complete", Map.of("length", finalAnswer.length()));
             emitter.complete();
@@ -297,13 +297,25 @@ public class ChatService {
 
     /**
      * Enriches KB hits with source metadata and emits a {@code sources_found} SSE event
-     * when at least one linkable card is found.
+     * for any card whose title is actually referenced by the final answer (or the question).
+     * This avoids attaching unrelated cards when RAG pulls in additional context that the
+     * LLM did not end up using.
      */
-    private void emitSourceCards(List<Document> kbHits, SseEmitter emitter) {
+    private void emitSourceCards(List<Document> kbHits, String answerText, String questionText, SseEmitter emitter) {
         if (kbHits == null || kbHits.isEmpty()) return;
         try {
-            List<SourceCardDto> cards = sourceEnrichment.enrich(kbHits, 3);
-            if (cards.isEmpty()) return;
+            List<SourceCardDto> all = sourceEnrichment.enrich(kbHits, 10);
+            if (all.isEmpty()) return;
+            String haystack = ((answerText == null ? "" : answerText) + " "
+                    + (questionText == null ? "" : questionText)).toLowerCase();
+            List<SourceCardDto> cards = all.stream()
+                    .filter(c -> titleMentioned(c.title(), haystack))
+                    .limit(3)
+                    .toList();
+            if (cards.isEmpty()) {
+                log.debug("Source cards filtered out: no titles matched answer/question text");
+                return;
+            }
             List<Map<String, Object>> payload = cards.stream().map(c -> {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("id", c.id());
@@ -313,12 +325,27 @@ public class ChatService {
                 m.put("url", c.url());
                 if (c.publishedAt() != null) m.put("publishedAt", c.publishedAt());
                 return m;
-            }).collect(Collectors.toList());
+            }).toList();
             emit(emitter, "sources_found", "Related content found",
                     Map.of("sources", payload));
         } catch (Exception ex) {
             log.warn("Source card enrichment failed: {}", ex.getMessage());
         }
+    }
+
+    /**
+     * True when {@code haystack} contains the full lowercased title, or contains any
+     * distinctive (alphanumeric) token of length ≥ 5 from the title. Short or stop-word
+     * tokens are ignored to avoid false matches.
+     */
+    private static boolean titleMentioned(String title, String haystack) {
+        if (title == null || title.isBlank()) return false;
+        String t = title.toLowerCase().trim();
+        if (haystack.contains(t)) return true;
+        for (String tok : t.split("[^\\p{L}\\p{N}]+")) {
+            if (tok.length() >= 5 && haystack.contains(tok)) return true;
+        }
+        return false;
     }
 
     private List<Document> runKbSearch(String question, SseEmitter emitter) {
