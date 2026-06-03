@@ -1,7 +1,9 @@
 # Multi-stage build
 # Stage 1: Build
+# Cache-bust: 2026-06-03-fix-supabase-datasource
 FROM maven:3.9-eclipse-temurin-21 AS builder
 
+ARG CACHEBUST=2026-06-03-1
 WORKDIR /build
 
 # Copy parent pom and all sub-module poms first (layer cache for dependencies)
@@ -25,6 +27,9 @@ COPY mcp-websearch-server/src/ mcp-websearch-server/src/
 COPY mcp-visitor-analytics-server/src/ mcp-visitor-analytics-server/src/
 COPY mcp-web-ops-server/src/ mcp-web-ops-server/src/
 COPY mcp-portfolio-sql-server/src/ mcp-portfolio-sql-server/src/
+
+# Force layer invalidation when CACHEBUST changes
+RUN echo "build=$CACHEBUST" > /build/.cachebust
 
 # Build only chatagent-app and its dependencies (chatagent-common)
 RUN ./mvnw clean package -DskipTests -pl chatagent-app -am
