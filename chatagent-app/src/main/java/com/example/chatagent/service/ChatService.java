@@ -1,6 +1,7 @@
 package com.example.chatagent.service;
 
 import com.example.chatagent.dto.ChatRequest;
+import com.example.chatagent.dto.SourceCardDto;
 import com.example.chatagent.memory.ToolCallRecordingAdvisor;
 import com.example.chatagent.service.intent.IntentRouter;
 import com.example.chatagent.service.intent.IntentRouter.IntentDecision;
@@ -16,6 +17,7 @@ import com.example.chatagent.service.retrieval.GitHubDocumentRetrievalService;
 import com.example.chatagent.service.retrieval.HybridRetrievalService;
 import com.example.chatagent.service.retrieval.RetrievalRouterService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -35,7 +37,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 /**
  * Orchestrates RAG turns for all chat modes:
@@ -114,6 +115,7 @@ public class ChatService {
     private final DeepThinkingService deepThinkingService;
     private final IntentRouter intentRouter;
     private final ToolCallRecordingAdvisor toolCallRecordingAdvisor;
+    private final SourceEnrichmentService sourceEnrichment;
 
     /** In-memory rolling conversation window, keyed by sessionId. */
     private final ChatMemory chatMemory = MessageWindowChatMemory.builder()
@@ -130,6 +132,7 @@ public class ChatService {
                        DeepThinkingService deepThinkingService,
                        IntentRouter intentRouter,
                        ToolCallRecordingAdvisor toolCallRecordingAdvisor,
+                       SourceEnrichmentService sourceEnrichment,
                        ObjectProvider<org.springframework.ai.tool.ToolCallbackProvider> mcpToolsProvider,
                        ObjectProvider<VisitorAnalyticsTool> visitorAnalyticsToolProvider,
                        ObjectProvider<WebOpsTool> webOpsToolProvider,
@@ -145,6 +148,7 @@ public class ChatService {
         this.deepThinkingService = deepThinkingService;
         this.intentRouter = intentRouter;
         this.toolCallRecordingAdvisor = toolCallRecordingAdvisor;
+        this.sourceEnrichment = sourceEnrichment;
         ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
         if (builder != null) {
             builder = builder.defaultSystem(SYSTEM_PROMPT);
@@ -239,7 +243,8 @@ public class ChatService {
             String context = buildCombinedContext(kbHits, githubHits);
 
             emit(emitter, "generate", "Generating answer",
-                    Map.of("toolName", "llm_generate", "status", "running"));
+            Map.of("toolName", "llm_generate", "status", "running"));
+        emitSourceCards(kbHits, emitter);
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
             String finalAnswer = streamAnswer(req.safeMessage(), context, sid, emitter,
                     req.userEmail(), intent.toolHints());
@@ -273,6 +278,7 @@ public class ChatService {
 
             emit(emitter, "generate", "Deep reasoning started",
                     Map.of("toolName", "llm_deep_think", "status", "running"));
+                    emitSourceCards(kbHits, emitter);
 
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
             String finalAnswer = deepThinkingService.handle(req.safeMessage(), context, sid, emitter);
@@ -286,6 +292,34 @@ public class ChatService {
     }
 
 
+
+    // ── Source card emission ─────────────────────────────────────────────────
+
+    /**
+     * Enriches KB hits with source metadata and emits a {@code sources_found} SSE event
+     * when at least one linkable card is found.
+     */
+    private void emitSourceCards(List<Document> kbHits, SseEmitter emitter) {
+        if (kbHits == null || kbHits.isEmpty()) return;
+        try {
+            List<SourceCardDto> cards = sourceEnrichment.enrich(kbHits, 3);
+            if (cards.isEmpty()) return;
+            List<Map<String, Object>> payload = cards.stream().map(c -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", c.id());
+                m.put("type", c.type());
+                m.put("title", c.title());
+                if (c.imageUrl() != null) m.put("imageUrl", c.imageUrl());
+                m.put("url", c.url());
+                if (c.publishedAt() != null) m.put("publishedAt", c.publishedAt());
+                return m;
+            }).collect(Collectors.toList());
+            emit(emitter, "sources_found", "Related content found",
+                    Map.of("sources", payload));
+        } catch (Exception ex) {
+            log.warn("Source card enrichment failed: {}", ex.getMessage());
+        }
+    }
 
     private List<Document> runKbSearch(String question, SseEmitter emitter) {
         long start = System.currentTimeMillis();
