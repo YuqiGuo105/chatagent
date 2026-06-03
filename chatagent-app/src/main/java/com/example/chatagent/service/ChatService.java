@@ -116,6 +116,7 @@ public class ChatService {
     private final IntentRouter intentRouter;
     private final ToolCallRecordingAdvisor toolCallRecordingAdvisor;
     private final SourceEnrichmentService sourceEnrichment;
+    private final ContentLinkService contentLinkService;
 
     /** In-memory rolling conversation window, keyed by sessionId. */
     private final ChatMemory chatMemory = MessageWindowChatMemory.builder()
@@ -133,6 +134,7 @@ public class ChatService {
                        IntentRouter intentRouter,
                        ToolCallRecordingAdvisor toolCallRecordingAdvisor,
                        SourceEnrichmentService sourceEnrichment,
+                       ContentLinkService contentLinkService,
                        ObjectProvider<org.springframework.ai.tool.ToolCallbackProvider> mcpToolsProvider,
                        ObjectProvider<VisitorAnalyticsTool> visitorAnalyticsToolProvider,
                        ObjectProvider<WebOpsTool> webOpsToolProvider,
@@ -149,6 +151,7 @@ public class ChatService {
         this.intentRouter = intentRouter;
         this.toolCallRecordingAdvisor = toolCallRecordingAdvisor;
         this.sourceEnrichment = sourceEnrichment;
+        this.contentLinkService = contentLinkService;
         ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
         if (builder != null) {
             builder = builder.defaultSystem(SYSTEM_PROMPT);
@@ -242,6 +245,8 @@ public class ChatService {
 
             String context = buildCombinedContext(kbHits, githubHits);
 
+            extractAndEmitRelatedLinks(req.safeMessage(), emitter);
+
             emit(emitter, "generate", "Generating answer",
                     Map.of("toolName", "llm_generate", "status", "running"));
             String sid = req.sessionId() == null || req.sessionId().isBlank() ? "anonymous" : req.sessionId();
@@ -276,6 +281,8 @@ public class ChatService {
             }
             String context = buildCombinedContext(kbHits, githubHits);
 
+            extractAndEmitRelatedLinks(req.safeMessage(), emitter);
+
             emit(emitter, "generate", "Deep reasoning started",
                     Map.of("toolName", "llm_deep_think", "status", "running"));
 
@@ -292,6 +299,23 @@ public class ChatService {
     }
 
 
+
+    // ── Related links emission ────────────────────────────────────────────────
+
+    /**
+     * Runs a fresh semantic search via {@link ContentLinkService} and emits a
+     * {@code related_links} SSE event if any relevant content is found.
+     */
+    private void extractAndEmitRelatedLinks(String question, SseEmitter emitter) {
+        try {
+            List<Map<String, Object>> links = contentLinkService.findRelatedLinks(question);
+            if (links.isEmpty()) return;
+            emit(emitter, "related_links", "Found related content",
+                    Map.of("links", links));
+        } catch (Exception ex) {
+            log.warn("Related links emission failed: {}", ex.getMessage());
+        }
+    }
 
     // ── Source card emission ─────────────────────────────────────────────────
 

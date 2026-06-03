@@ -192,3 +192,12 @@ portfolio-sql:
     metadata-ttl-minutes: 60
     result-ttl-minutes: 5
     result-max-size: 200
+
+# ============================================================
+# Content Link Service — dynamic related content suggestions
+# ============================================================
+app:
+  content-links:
+    enabled: ${CONTENT_LINKS_ENABLED:true}
+    max-results: ${CONTENT_LINKS_MAX_RESULTS:3}
+    similarity-threshold: ${CONTENT_LINKS_SIMILARITY_THRESHOLD:0.40}
