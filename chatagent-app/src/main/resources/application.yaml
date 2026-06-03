@@ -13,11 +13,13 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
-  # DataSource Configuration - prefers SPRING_DATASOURCE_URL; falls back to PGHOST/PGPORT/PGDATABASE
+  # DataSource Configuration - prefers APP_DB_URL, then SPRING_DATASOURCE_URL.
+  # Fallback is a safe localhost URL so Railway pgvector's PGHOST/PGPORT/PGDATABASE
+  # variables (injected from sibling services) cannot accidentally override the target DB.
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${PGHOST:localhost}:${PGPORT:5432}/${PGDATABASE:chatagent}}
-    username: ${SPRING_DATASOURCE_USERNAME:${PGUSER:postgres}}
-    password: ${SPRING_DATASOURCE_PASSWORD:${PGPASSWORD:postgres}}
+    url: ${APP_DB_URL:${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/chatagent}}
+    username: ${APP_DB_USERNAME:${SPRING_DATASOURCE_USERNAME:postgres}}
+    password: ${APP_DB_PASSWORD:${SPRING_DATASOURCE_PASSWORD:postgres}}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
