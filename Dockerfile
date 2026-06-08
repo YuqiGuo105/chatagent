@@ -56,5 +56,5 @@ EXPOSE 8080
 # Environment variables
 ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0"
 
-# Run application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Run application (shell form so $JAVA_OPTS expands; exec keeps PID 1)
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

@@ -1,0 +1,115 @@
+# Render Blueprint for the chatagent monorepo
+# Docs: https://render.com/docs/blueprint-spec
+#
+# This Blueprint deploys BOTH services from this repo in one click:
+#   - chatagent       (Spring Boot chat/RAG backend; Dockerfile at repo root)
+#   - writer-service  (Spring Boot admin write API; Dockerfile in writer-service/)
+#
+# After committing this file, in the Render dashboard:
+#   New → Blueprint → connect this repo (YuqiGuo105/chatagent) → Apply
+# Render reads this file and creates BOTH services.
+#
+# Sensitive env vars (sync: false) MUST be set in the Render dashboard after
+# the services are created. They are NOT read from this file.
+
+services:
+  # =========================================================================
+  # 1) chatagent — main backend (port from $PORT, Supabase Postgres)
+  # =========================================================================
+  - type: web
+    name: chatagent
+    runtime: docker
+    plan: free            # 512 MB RAM, sleeps after 15 min idle (cold start ~30-60 s)
+    region: oregon        # closest US region to Supabase us-west-1
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    autoDeploy: true
+
+    envVars:
+      # ---- Required (paste in Render dashboard) ----
+      # Supabase Postgres (Session Pooler, IPv4-compatible)
+      - key: APP_DB_URL
+        sync: false       # jdbc:postgresql://aws-0-us-west-1.pooler.supabase.com:5432/postgres?sslmode=require
+      - key: APP_DB_USERNAME
+        sync: false       # postgres.iyvhmpdfrnznxgyvvkvx
+      - key: APP_DB_PASSWORD
+        sync: false       # your Supabase DB password
+
+      # OpenAI (chat + embeddings)
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Optional integrations — leave blank if unused
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GOOGLE_CSE_ID
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+
+      # ---- Non-secret defaults ----
+      - key: SPRING_JPA_HIBERNATE_DDL_AUTO
+        value: update     # matches existing Railway behavior; switch to "validate" once stable
+      - key: SPRING_JPA_SHOW_SQL
+        value: "false"
+      - key: LOGGING_LEVEL_ROOT
+        value: INFO
+      - key: LOGGING_LEVEL_COM_EXAMPLE
+        value: INFO
+
+      - key: OPENAI_CHAT_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: OPENAI_CHEAP_MODEL
+        value: gpt-4.1-nano
+      - key: OPENAI_DEEP_MODEL
+        value: gpt-4.1-mini
+
+      - key: CORS_ALLOWED_ORIGINS
+        value: "http://localhost:3000,https://www.yuqi.site"
+
+      - key: GITHUB_SYNC_ENABLED
+        value: "false"
+
+      # JVM tuning for Render free tier (512 MB)
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70 -XX:InitialRAMPercentage=40 -XX:+UseG1GC"
+
+  # =========================================================================
+  # 2) writer-service — admin write API + outbox + pg_notify
+  # =========================================================================
+  - type: web
+    name: writer-service
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: writer-service     # build context is the subfolder
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    autoDeploy: true
+
+    envVars:
+      # ---- Required (paste in Render dashboard) ----
+      - key: WRITER_DB_URL
+        sync: false       # jdbc:postgresql://aws-0-us-west-1.pooler.supabase.com:5432/postgres?sslmode=require&stringtype=unspecified
+      - key: WRITER_DB_USERNAME
+        sync: false       # postgres.iyvhmpdfrnznxgyvvkvx
+      - key: WRITER_DB_PASSWORD
+        sync: false       # your Supabase DB password
+      - key: WRITER_ADMIN_TOKEN
+        generateValue: true  # Render generates a strong random token
+
+      # ---- Non-secret defaults ----
+      - key: WRITER_PUBLISHER_TYPE
+        value: pg-notify
+      - key: WRITER_PUBLISHER_CHANNEL
+        value: writer_content_events
+      - key: OUTBOX_POLL_INTERVAL_MS
+        value: "5000"
+
+      # JVM tuning for Render free tier (512 MB)
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70 -XX:+UseG1GC"
