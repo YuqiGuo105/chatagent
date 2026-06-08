@@ -1,0 +1,64 @@
+name: Writer Service CI
+
+# Build + test the writer-service on every push and PR that touches it.
+# Render deploys automatically when this workflow + commit lands on main
+# (no deploy step needed here — autoDeploy: true in render.yaml).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'writer-service/**'
+      - '.github/workflows/writer-service-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'writer-service/**'
+      - '.github/workflows/writer-service-ci.yml'
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: writer-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compile
+        run: mvn -B -q -DskipTests compile
+
+      - name: Run tests (Testcontainers)
+        run: mvn -B -q verify
+
+      - name: Build JAR (sanity)
+        run: mvn -B -q -DskipTests package
+
+  # Optional: notify Render to deploy. Not required since render.yaml has
+  # autoDeploy: true, but useful if you turn that off later.
+  trigger-render-deploy:
+    name: Trigger Render Deploy
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip if no deploy hook configured
+        if: env.RENDER_DEPLOY_HOOK_URL == ''
+        run: echo "RENDER_DEPLOY_HOOK_URL secret not set; relying on render.yaml autoDeploy."
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+
+      - name: POST to Render deploy hook
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: curl -fsSL -X POST "$RENDER_DEPLOY_HOOK_URL"

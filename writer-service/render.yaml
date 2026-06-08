@@ -1,0 +1,45 @@
+# Render Blueprint for writer-service
+# Docs: https://render.com/docs/blueprint-spec
+#
+# After committing this file, in the Render dashboard:
+#   New → Blueprint → connect this repo → root path = writer-service
+# Render will read this file and create the service.
+#
+# Sensitive env vars (sync: false) MUST be set in the Render dashboard after the
+# service is created. They are NOT read from this file.
+
+services:
+  - type: web
+    name: writer-service
+    runtime: docker
+    plan: free
+    region: oregon          # closest to your Supabase us-west-1 project
+    branch: main
+    # Build context = the writer-service folder inside the repo
+    rootDir: writer-service
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    autoDeploy: true
+
+    envVars:
+      # ---- Required: paste these in the Render dashboard ----
+      - key: WRITER_DB_URL
+        sync: false          # e.g. jdbc:postgresql://aws-0-us-west-1.pooler.supabase.com:5432/postgres?sslmode=require&stringtype=unspecified
+      - key: WRITER_DB_USERNAME
+        sync: false          # postgres.iyvhmpdfrnznxgyvvkvx
+      - key: WRITER_DB_PASSWORD
+        sync: false          # your Supabase database password
+      - key: WRITER_ADMIN_TOKEN
+        generateValue: true  # Render generates a strong random token
+
+      # ---- Optional overrides ----
+      - key: WRITER_PUBLISHER_TYPE
+        value: pg-notify
+      - key: WRITER_PUBLISHER_CHANNEL
+        value: writer_content_events
+      - key: OUTBOX_POLL_INTERVAL_MS
+        value: "5000"
+
+      # JVM tuning for Render's 512MB free tier
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70 -XX:+UseG1GC"

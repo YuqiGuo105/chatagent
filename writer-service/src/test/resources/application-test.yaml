@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: ${TEST_DATASOURCE_URL:jdbc:tc:postgresql:15:///postgres?TC_REUSABLE=true}
+    username: postgres
+    password: postgres
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        default_schema: writer
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    schemas: writer
+    default-schema: writer
+    create-schemas: true
+
+writer:
+  admin:
+    token: test-token
+  outbox:
+    poll-interval-ms: 60000

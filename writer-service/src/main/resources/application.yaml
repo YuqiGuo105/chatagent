@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: writer-service
+  datasource:
+    # Supabase Postgres. Use the "Session pooler" connection string from
+    # Supabase → Project Settings → Database → Connection string → JDBC.
+    # Example: jdbc:postgresql://aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
+    url: ${WRITER_DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${WRITER_DB_USERNAME:postgres}
+    password: ${WRITER_DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: writer
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # Flyway needs to create the `writer` schema before running V1__init.sql.
+    schemas: writer
+    default-schema: writer
+    create-schemas: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+writer:
+  admin:
+    token: ${WRITER_ADMIN_TOKEN:}
+    # WARNING: This is a dev-only placeholder.
+    # In production, replace with JWT/Firebase/Cognito (Supabase Auth) validation.
+  outbox:
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:5000}
+  publisher:
+    # `pg-notify` (default): publishes via Postgres NOTIFY — works with Supabase Realtime.
+    # `noop`: logs only; use when no consumers are wired up yet.
+    type: ${WRITER_PUBLISHER_TYPE:pg-notify}
+    pg-notify:
+      channel: ${WRITER_PUBLISHER_CHANNEL:writer_content_events}
+
+logging:
+  level:
+    root: INFO
+    com.example.writer: DEBUG

@@ -1,0 +1,21 @@
+version: '3.8'
+# NOTE: The database lives in Supabase (managed Postgres).
+# This compose file only runs the writer-service container.
+# Provide Supabase connection env vars via an .env file or `docker compose --env-file`.
+services:
+  writer-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: writer-service
+    ports:
+      - "8081:8081"
+    environment:
+      # Supabase Postgres connection (use the "Session pooler" URL from Supabase → Project Settings → Database)
+      # Example: jdbc:postgresql://aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
+      WRITER_DB_URL: ${WRITER_DB_URL}
+      WRITER_DB_USERNAME: ${WRITER_DB_USERNAME}
+      WRITER_DB_PASSWORD: ${WRITER_DB_PASSWORD}
+      WRITER_ADMIN_TOKEN: ${WRITER_ADMIN_TOKEN}
+      # Future: Kafka via Railway
+      # KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
