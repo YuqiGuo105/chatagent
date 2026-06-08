@@ -109,6 +109,10 @@ app:
     deep: ${OPENAI_DEEP_MODEL:gpt-4.1-mini}
   sse:
     heartbeat-ms: ${SSE_HEARTBEAT_MS:15000}
+  content-links:
+    enabled: ${CONTENT_LINKS_ENABLED:true}
+    max-results: ${CONTENT_LINKS_MAX_RESULTS:3}
+    similarity-threshold: ${CONTENT_LINKS_SIMILARITY_THRESHOLD:0.40}
 
 # ============================================================
 # GitHub project content sync + retrieval configuration
@@ -193,11 +197,5 @@ portfolio-sql:
     result-ttl-minutes: 5
     result-max-size: 200
 
-# ============================================================
-# Content Link Service — dynamic related content suggestions
-# ============================================================
-app:
-  content-links:
-    enabled: ${CONTENT_LINKS_ENABLED:true}
-    max-results: ${CONTENT_LINKS_MAX_RESULTS:3}
-    similarity-threshold: ${CONTENT_LINKS_SIMILARITY_THRESHOLD:0.40}
+# Content Link Service properties moved into the main `app:` block above
+# (Spring/SnakeYAML rejects duplicate top-level keys).
