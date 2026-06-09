@@ -1,0 +1,170 @@
+package com.example.writer.service;
+
+import com.example.writer.dto.SearchResponseDto;
+import com.example.writer.dto.SearchResultDto;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Stream;
+
+/**
+ * Full-text search across writer.blogs, writer.life_blogs, writer.projects using
+ * PostgreSQL {@code websearch_to_tsquery} (supports phrases, negation, OR) with an
+ * ILIKE fallback so short / non-dictionary queries still return results.
+ *
+ * <p>Results from all three tables are merged in Java, sorted by FTS rank
+ * descending, then paginated. Suitable for a portfolio with &lt;1 000 items.</p>
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ContentSearchService {
+
+    private final JdbcTemplate jdbc;
+
+    // Each sub-query takes 4 positional params: q, q (tsvector), ilike, ilike (title, tags)
+    private static final String BLOG_SQL = """
+            SELECT
+                'blog'         AS source,
+                'writer.blogs' AS source_table,
+                id::text       AS source_id,
+                title,
+                description,
+                COALESCE(url, '/blog/' || slug) AS url,
+                tags,
+                TO_CHAR(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS published_at,
+                ts_rank(
+                    to_tsvector('english',
+                        COALESCE(title,'') || ' ' ||
+                        COALESCE(description,'') || ' ' ||
+                        COALESCE(tags,'')),
+                    websearch_to_tsquery('english', ?)
+                ) AS rank
+            FROM writer.blogs
+            WHERE status = 'PUBLISHED'
+              AND visibility = 'PUBLIC'
+              AND (
+                  to_tsvector('english',
+                      COALESCE(title,'') || ' ' ||
+                      COALESCE(description,'') || ' ' ||
+                      COALESCE(tags,''))
+                  @@ websearch_to_tsquery('english', ?)
+                  OR title       ILIKE ?
+                  OR tags        ILIKE ?
+              )
+            """;
+
+    private static final String LIFE_BLOG_SQL = """
+            SELECT
+                'life-blog'         AS source,
+                'writer.life_blogs' AS source_table,
+                id::text            AS source_id,
+                title,
+                description,
+                COALESCE(url, '/life-blog/' || slug) AS url,
+                tags,
+                TO_CHAR(published_at::timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS published_at,
+                ts_rank(
+                    to_tsvector('english',
+                        COALESCE(title,'') || ' ' ||
+                        COALESCE(description,'') || ' ' ||
+                        COALESCE(tags,'')),
+                    websearch_to_tsquery('english', ?)
+                ) AS rank
+            FROM writer.life_blogs
+            WHERE status = 'PUBLISHED'
+              AND (
+                  to_tsvector('english',
+                      COALESCE(title,'') || ' ' ||
+                      COALESCE(description,'') || ' ' ||
+                      COALESCE(tags,''))
+                  @@ websearch_to_tsquery('english', ?)
+                  OR title ILIKE ?
+                  OR tags  ILIKE ?
+              )
+            """;
+
+    private static final String PROJECT_SQL = """
+            SELECT
+                'project'            AS source,
+                'writer.projects'    AS source_table,
+                id::text             AS source_id,
+                title,
+                description,
+                COALESCE(url, '/work/' || slug) AS url,
+                tags,
+                TO_CHAR(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS published_at,
+                ts_rank(
+                    to_tsvector('english',
+                        COALESCE(title,'') || ' ' ||
+                        COALESCE(description,'') || ' ' ||
+                        COALESCE(tags,'')),
+                    websearch_to_tsquery('english', ?)
+                ) AS rank
+            FROM writer.projects
+            WHERE status = 'PUBLISHED'
+              AND visibility = 'PUBLIC'
+              AND (
+                  to_tsvector('english',
+                      COALESCE(title,'') || ' ' ||
+                      COALESCE(description,'') || ' ' ||
+                      COALESCE(tags,''))
+                  @@ websearch_to_tsquery('english', ?)
+                  OR title      ILIKE ?
+                  OR tags       ILIKE ?
+              )
+            """;
+
+    public SearchResponseDto search(String q, String source, int limit, int offset) {
+        String ilike = "%" + q.toLowerCase() + "%";
+        Object[] params = {q, q, ilike, ilike};
+
+        List<SearchResultDto> all = new ArrayList<>();
+
+        if (source == null || source.equals("blog")) {
+            all.addAll(runQuery(BLOG_SQL, params));
+        }
+        if (source == null || source.equals("life-blog")) {
+            all.addAll(runQuery(LIFE_BLOG_SQL, params));
+        }
+        if (source == null || source.equals("project")) {
+            all.addAll(runQuery(PROJECT_SQL, params));
+        }
+
+        // Sort by FTS rank descending, then alphabetically by title for ties
+        all.sort(Comparator.comparingDouble(SearchResultDto::getRank).reversed()
+                .thenComparing(r -> r.getTitle() == null ? "" : r.getTitle()));
+
+        long total = all.size();
+        List<SearchResultDto> page = all.stream()
+                .skip(offset)
+                .limit(limit)
+                .toList();
+
+        return new SearchResponseDto(page, total, limit, offset);
+    }
+
+    private List<SearchResultDto> runQuery(String sql, Object[] params) {
+        try {
+            return jdbc.query(sql, params, (rs, rowNum) -> SearchResultDto.builder()
+                    .source(rs.getString("source"))
+                    .sourceTable(rs.getString("source_table"))
+                    .sourceId(rs.getString("source_id"))
+                    .title(rs.getString("title"))
+                    .description(rs.getString("description"))
+                    .url(rs.getString("url"))
+                    .tags(rs.getString("tags"))
+                    .publishedAt(rs.getString("published_at"))
+                    .rank(rs.getDouble("rank"))
+                    .build());
+        } catch (Exception e) {
+            log.warn("Search query failed for SQL segment: {}", e.getMessage());
+            return List.of();
+        }
+    }
+}

@@ -39,6 +39,9 @@ management:
       exposure:
         include: health,info
 
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,https://www.yuqi.site}
+
 writer:
   admin:
     token: ${WRITER_ADMIN_TOKEN:}
