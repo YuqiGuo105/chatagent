@@ -96,14 +96,15 @@ public class ContentSearchService {
                 id::text             AS source_id,
                 title,
                 description,
-                COALESCE(url, '/work/' || slug) AS url,
+                COALESCE(url, '/works') AS url,
                 tags,
                 TO_CHAR(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS published_at,
                 ts_rank(
                     to_tsvector('english',
                         COALESCE(title,'') || ' ' ||
                         COALESCE(description,'') || ' ' ||
-                        COALESCE(tags,'')),
+                        COALESCE(tags,'') || ' ' ||
+                        COALESCE(technology,'')),
                     websearch_to_tsquery('english', ?)
                 ) AS rank
             FROM writer.projects
@@ -113,16 +114,19 @@ public class ContentSearchService {
                   to_tsvector('english',
                       COALESCE(title,'') || ' ' ||
                       COALESCE(description,'') || ' ' ||
-                      COALESCE(tags,''))
+                      COALESCE(tags,'') || ' ' ||
+                      COALESCE(technology,''))
                   @@ websearch_to_tsquery('english', ?)
-                  OR title      ILIKE ?
-                  OR tags       ILIKE ?
+                  OR title       ILIKE ?
+                  OR tags        ILIKE ?
+                  OR technology  ILIKE ?
               )
             """;
 
     public SearchResponseDto search(String q, String source, int limit, int offset) {
         String ilike = "%" + q.toLowerCase() + "%";
-        Object[] params = {q, q, ilike, ilike};
+        Object[] params     = {q, q, ilike, ilike};          // blog / life_blog: 4 params
+        Object[] paramsProj = {q, q, ilike, ilike, ilike};   // project: 5 params (+ technology ILIKE)
 
         List<SearchResultDto> all = new ArrayList<>();
 
@@ -133,7 +137,7 @@ public class ContentSearchService {
             all.addAll(runQuery(LIFE_BLOG_SQL, params));
         }
         if (source == null || source.equals("project")) {
-            all.addAll(runQuery(PROJECT_SQL, params));
+            all.addAll(runQuery(PROJECT_SQL, paramsProj));
         }
 
         // Sort by FTS rank descending, then alphabetically by title for ties

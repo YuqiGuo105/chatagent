@@ -24,8 +24,10 @@ $$;
 
 -- ── 1. GIN indexes for fast websearch_to_tsquery FTS ─────────────────────
 -- These dramatically speed up ContentSearchService on large datasets.
+-- Use DROP+CREATE (not IF NOT EXISTS) so re-runs update the definition.
 
-CREATE INDEX IF NOT EXISTS writer_blogs_fts_idx
+DROP INDEX IF EXISTS writer.writer_blogs_fts_idx;
+CREATE INDEX writer_blogs_fts_idx
     ON writer.blogs
     USING GIN (
         to_tsvector('english',
@@ -34,7 +36,8 @@ CREATE INDEX IF NOT EXISTS writer_blogs_fts_idx
             COALESCE(tags, ''))
     );
 
-CREATE INDEX IF NOT EXISTS writer_life_blogs_fts_idx
+DROP INDEX IF EXISTS writer.writer_life_blogs_fts_idx;
+CREATE INDEX writer_life_blogs_fts_idx
     ON writer.life_blogs
     USING GIN (
         to_tsvector('english',
@@ -43,13 +46,15 @@ CREATE INDEX IF NOT EXISTS writer_life_blogs_fts_idx
             COALESCE(tags, ''))
     );
 
-CREATE INDEX IF NOT EXISTS writer_projects_fts_idx
+DROP INDEX IF EXISTS writer.writer_projects_fts_idx;
+CREATE INDEX writer_projects_fts_idx
     ON writer.projects
     USING GIN (
         to_tsvector('english',
             COALESCE(title, '') || ' ' ||
             COALESCE(description, '') || ' ' ||
-            COALESCE(tags, ''))
+            COALESCE(tags, '') || ' ' ||
+            COALESCE(technology, ''))
     );
 
 -- ── 2. Backfill public."Blogs" → writer.blogs ────────────────────────────
@@ -182,7 +187,8 @@ SELECT
     p.image_url,
     COALESCE(p."URL", '/works'),  -- fallback to works listing
     p.technology,
-    p.year,
+    -- legacy year is e.g. "March, 2024 - May, 2024"; extract the first 4-digit year
+    SUBSTRING(p.year FROM '(\d{4})'),
     p.num,
     'PUBLISHED',
     'PUBLIC',
